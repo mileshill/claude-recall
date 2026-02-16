@@ -1,0 +1,32 @@
+{
+  "version": "1.0.0",
+  "generated_at": "2026-02-16T19:00:00Z",
+  "sessions": [
+    {
+      "id": "test-session-1",
+      "file": "test-session-1.md",
+      "captured": "2026-02-16T18:00:00Z",
+      "summary": "Fixed authentication bug in login flow",
+      "topics": ["authentication", "bug-fix", "security"],
+      "files_modified": ["src/auth.py", "tests/test_auth.py"],
+      "beads_issues": [],
+      "bm25_tokens": ["fix", "authentication", "bug", "login", "flow"]
+    },
+    {
+      "id": "test-session-2",
+      "file": "test-session-2.md",
+      "captured": "2026-02-15T18:00:00Z",
+      "summary": "Added new feature for user profiles",
+      "topics": ["feature", "user-profiles"],
+      "files_modified": ["src/profiles.py"],
+      "beads_issues": [],
+      "bm25_tokens": ["add", "new", "feature", "user", "profile"]
+    }
+  ],
+  "bm25_index": {
+    "doc_len": [5, 5],
+    "avgdl": 5.0,
+    "doc_freqs": [{"authentication": 1, "bug": 1, "fix": 1}],
+    "idf": {"authentication": 0.5, "bug": 0.5, "fix": 0.5}
+  }
+}

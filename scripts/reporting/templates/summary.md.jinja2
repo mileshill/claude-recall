@@ -1,0 +1,48 @@
+# Recall Analytics Summary
+
+**Period:** Last {{ period.days }} days
+**Generated:** {{ generation_time }}
+
+---
+
+## Quick Stats
+
+{% if usage.total_searches > 0 %}
+- 🔍 **{{ usage.total_searches }} searches** across {{ usage.unique_sessions }} sessions ({{ "%.1f"|format(usage.searches_per_day) }}/day)
+- ⭐ **Quality score:** {{ "%.3f"|format(quality.overall_score) }}/1.0
+- ⚡ **Performance:** {{ "%.0f"|format(performance.avg_latency_ms) }}ms avg latency
+- 💾 **Cache hit rate:** {{ "%.1f"|format(performance.cache_hit_rate * 100) }}%
+{% if impact.total_analyses > 0 %}
+- ⏱️ **Time saved:** {{ "%.1f"|format(impact.avg_efficiency_gain) }} min/session
+- 🎯 **Continuity:** {{ "%.3f"|format(impact.avg_continuity_score) }}/1.0
+{% endif %}
+{% if costs.total_evaluations > 0 %}
+- 💰 **Quality scoring cost:** ${{ "%.4f"|format(costs.total_cost_usd) }}
+{% endif %}
+{% else %}
+No search activity recorded during this period.
+{% endif %}
+
+---
+
+## Status
+
+{% if issues %}
+### ⚠️ Alerts ({{ issues|length }})
+{% for issue in issues %}
+- {% if issue.severity == 'error' %}🔴{% elif issue.severity == 'warning' %}⚠️{% else %}ℹ️{% endif %} **{{ issue.category|title }}:** {{ issue.message }}
+{%- endfor %}
+
+Run `python3 scripts/generate_recall_report.py --period {{ period.days }}` for detailed recommendations.
+{% else %}
+✅ **All systems operational** - No issues detected
+{% endif %}
+
+---
+
+{% if top_sessions %}
+## 🏆 Top Session
+**{{ top_sessions[0].session_id[:16] }}...** - {{ "%.3f"|format(top_sessions[0].avg_continuity) }} continuity, {{ "%.1f"|format(top_sessions[0].time_saved_minutes) }}min saved
+
+{% endif %}
+*For detailed analytics, run: `python3 scripts/generate_recall_report.py`*

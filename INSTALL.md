@@ -297,6 +297,42 @@ pip install rank-bm25 sentence-transformers
 python3 .claude/skills/recall/scripts/embed_sessions.py
 ```
 
+### Analytics Setup (Optional)
+
+Enable analytics and quality checks:
+
+```bash
+# Install analytics dependencies
+pip install jinja2  # For report templates
+pip install pytest  # For running tests (optional)
+
+# Enable analytics in config
+# Edit config/analytics_config.json:
+# Set telemetry.enabled, impact_analysis.enabled, quality_checks.enabled to true
+
+# Optional: Enable quality scoring (requires API key)
+export ANTHROPIC_API_KEY="your-api-key"
+# Set quality_scoring.enabled to true in analytics_config.json
+```
+
+**What you get:**
+- Automatic telemetry tracking
+- Impact analysis after sessions
+- Quality checks (7 automated checks)
+- Report generation
+- Optional LLM-based quality scoring (~$0.50/month)
+
+**Quick test:**
+```bash
+# Generate summary report
+python3 scripts/generate_recall_report.py --summary
+
+# Run quality checks
+python3 scripts/run_quality_checks.py --quick
+```
+
+See [Analytics Guide](docs/ANALYTICS_GUIDE.md) for complete documentation.
+
 ---
 
 ### Custom Configuration
@@ -429,6 +465,72 @@ pip install --upgrade claude-recall
 cd ~/.claude/shared/recall
 git pull origin main
 # All projects using symlink automatically updated
+```
+
+---
+
+## Optional: Analytics Features
+
+The recall system includes optional analytics features for tracking efficacy and optimizing performance.
+
+### Analytics Dependencies
+
+```bash
+# Install optional analytics dependencies
+pip install --user pytest jinja2 psutil anthropic
+```
+
+**Dependencies**:
+- `pytest` - For running analytics tests
+- `jinja2` - For report templates
+- `psutil` - For system metrics (memory, CPU)
+- `anthropic` - For LLM-based quality scoring (optional, costs ~$0.12/month)
+
+### Enable Analytics
+
+Analytics features are configured in `config/analytics_config.json`:
+
+```bash
+# View current configuration
+cat config/analytics_config.json
+
+# Or use Python
+python3 -c "from metrics.config import config; print(config.get_all())"
+```
+
+**Analytics Features**:
+- **Telemetry** (enabled by default): Track all recall events
+- **Impact Analysis** (enabled by default): Measure conversation improvements
+- **Quality Scoring** (disabled by default): LLM-based evaluation (~$0.12/month)
+- **Quality Checks** (enabled by default): Automated monitoring
+- **Reporting** (enabled by default): Generate analytics reports
+
+### Quick Status
+
+```bash
+# Check analytics status (after Phase 7 implementation)
+python3 scripts/analytics_status.py
+
+# Generate report
+python3 scripts/generate_recall_report.py --summary
+
+# Run quality checks
+python3 scripts/run_quality_checks.py
+```
+
+### Configuration
+
+See [Analytics Configuration Reference](config/ANALYTICS_CONFIG.md) for complete configuration options.
+
+**Quick toggles**:
+```json
+{
+  "telemetry": {"enabled": true},
+  "impact_analysis": {"enabled": true},
+  "quality_scoring": {"enabled": false},
+  "quality_checks": {"enabled": true},
+  "reporting": {"enabled": true}
+}
 ```
 
 ---

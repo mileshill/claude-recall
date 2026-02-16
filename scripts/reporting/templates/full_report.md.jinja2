@@ -1,0 +1,193 @@
+# Recall Analytics Report
+
+**Period:** {{ period.days }} days ({{ period.start_date[:10] }} to {{ period.end_date[:10] }})
+**Generated:** {{ generation_time }}
+
+---
+
+## Executive Summary
+
+{% if usage.total_searches > 0 %}
+- **Total Searches:** {{ usage.total_searches }} across {{ usage.unique_sessions }} unique sessions
+- **Search Frequency:** {{ usage.searches_per_day }} searches per day
+- **Quality Score:** {{ "%.3f"|format(quality.overall_score) }}/1.0
+- **Impact:** {{ "%.1f"|format(impact.avg_efficiency_gain) }} minutes saved per session on average
+- **Performance:** {{ "%.0f"|format(performance.avg_latency_ms) }}ms average latency
+{% else %}
+No search activity recorded during this period.
+{% endif %}
+
+---
+
+## Usage Statistics
+
+### Overview
+- **Total searches:** {{ usage.total_searches }}
+- **Unique sessions:** {{ usage.unique_sessions }}
+- **Searches per day:** {{ "%.2f"|format(usage.searches_per_day) }}
+- **Avg results per search:** {{ "%.2f"|format(usage.avg_results_per_search) }}
+
+{% if usage.mode_distribution %}
+### Search Mode Distribution
+```
+{% for mode, count in usage.mode_distribution.items()|sort(attribute='1', reverse=True) %}
+{{ "%-20s"|format(mode) }} {{ "█" * (count * 40 // usage.total_searches)|default("", True) }} {{ count }}
+{%- endfor %}
+```
+{% endif %}
+
+---
+
+## Quality Metrics
+
+{% if quality.total_evaluations > 0 %}
+### Quality Scores
+- **Total evaluations:** {{ quality.total_evaluations }}
+- **Overall quality score:** {{ "%.3f"|format(quality.overall_score) }}/1.0
+- **Relevance:** {{ "%.3f"|format(quality.avg_relevance) }}/1.0
+- **Coverage:** {{ "%.3f"|format(quality.avg_coverage) }}/1.0
+- **Specificity:** {{ "%.3f"|format(quality.avg_specificity) }}/1.0
+
+### Score Distribution
+```
+{% for category, count in [('excellent', quality.score_distribution.excellent), ('good', quality.score_distribution.good), ('fair', quality.score_distribution.fair), ('poor', quality.score_distribution.poor)] %}
+{{ "%-15s"|format(category) }} {{ "█" * (count * 40 // quality.total_evaluations if quality.total_evaluations > 0 else 0) }} {{ count }}
+{%- endfor %}
+```
+
+**Legend:** excellent (≥0.8) | good (≥0.6) | fair (≥0.4) | poor (<0.4)
+{% else %}
+No quality evaluations performed during this period.
+{% endif %}
+
+---
+
+## Context Impact Analysis
+
+{% if impact.total_analyses > 0 %}
+### Impact Metrics
+- **Total analyses:** {{ impact.total_analyses }}
+- **Avg explicit citations:** {{ "%.2f"|format(impact.avg_explicit_citations) }} per session
+- **Avg implicit usage score:** {{ "%.3f"|format(impact.avg_implicit_usage) }}/1.0
+- **Avg continuity score:** {{ "%.3f"|format(impact.avg_continuity_score) }}/1.0
+- **Avg efficiency gain:** {{ "%.1f"|format(impact.avg_efficiency_gain) }} minutes per session
+
+### Interpretation
+{% if impact.avg_continuity_score >= 0.7 %}
+✅ **Strong continuity** - Recalled context is highly relevant to current conversations.
+{% elif impact.avg_continuity_score >= 0.4 %}
+⚠️ **Moderate continuity** - Some recalled context may not be fully relevant.
+{% else %}
+🔴 **Low continuity** - Consider reviewing recall strategy and query patterns.
+{% endif %}
+
+{% if impact.avg_efficiency_gain >= 10 %}
+✅ **Significant time savings** - Recall is providing substantial productivity gains.
+{% elif impact.avg_efficiency_gain >= 5 %}
+⚠️ **Modest time savings** - There's room for improvement in recall effectiveness.
+{% else %}
+ℹ️ **Limited time savings** - Consider optimizing recall usage patterns.
+{% endif %}
+{% else %}
+No impact analyses performed during this period.
+{% endif %}
+
+---
+
+## Most Valuable Sessions
+
+{% if top_sessions %}
+These sessions demonstrated the highest value from recalled context:
+
+| Rank | Session ID | Continuity | Time Saved (min) | Citations |
+|------|------------|------------|------------------|-----------|
+{% for session in top_sessions[:10] %}
+| {{ loop.index }} | `{{ session.session_id[:12] }}...` | {{ "%.3f"|format(session.avg_continuity) }} | {{ "%.1f"|format(session.time_saved_minutes) }} | {{ session.total_citations }} |
+{%- endfor %}
+{% else %}
+No session impact data available for this period.
+{% endif %}
+
+---
+
+## Performance Benchmarks
+
+### Latency Statistics
+- **Average latency:** {{ "%.2f"|format(performance.avg_latency_ms) }}ms
+- **P50 (median):** {{ "%.2f"|format(performance.p50_latency_ms) }}ms
+- **P95:** {{ "%.2f"|format(performance.p95_latency_ms) }}ms
+- **P99:** {{ "%.2f"|format(performance.p99_latency_ms) }}ms
+
+### Caching
+- **Cache hit rate:** {{ "%.1f"|format(performance.cache_hit_rate * 100) }}%
+
+### Performance Assessment
+{% if performance.avg_latency_ms < 500 %}
+✅ **Excellent performance** - Search latency is within optimal range.
+{% elif performance.avg_latency_ms < 1000 %}
+⚠️ **Acceptable performance** - Consider optimizations if latency increases.
+{% else %}
+🔴 **Performance concerns** - High latency detected. Review index size and query complexity.
+{% endif %}
+
+---
+
+## Issues & Recommendations
+
+{% if issues %}
+{% for issue in issues %}
+### {% if issue.severity == 'error' %}🔴{% elif issue.severity == 'warning' %}⚠️{% else %}ℹ️{% endif %} {{ issue.category|title }}
+
+**Issue:** {{ issue.message }}
+
+**Recommendation:** {{ issue.recommendation }}
+
+{% endfor %}
+{% else %}
+✅ No issues detected during this period.
+{% endif %}
+
+---
+
+## Cost Analysis
+
+{% if costs.total_evaluations > 0 %}
+### Quality Scoring Costs
+- **Total evaluations:** {{ costs.total_evaluations }}
+- **Total cost:** ${{ "%.4f"|format(costs.total_cost_usd) }} USD
+- **Avg cost per evaluation:** ${{ "%.6f"|format(costs.avg_cost_per_eval) }} USD
+- **Total tokens processed:** {{ "{:,}".format(costs.total_tokens) }}
+
+### Cost Efficiency
+{% set projected_monthly = costs.total_cost_usd * 30 / period.days %}
+- **Projected monthly cost:** ${{ "%.2f"|format(projected_monthly) }} USD
+{% if projected_monthly < 5 %}
+✅ Well within budget (< $5/month target)
+{% elif projected_monthly < 10 %}
+⚠️ Approaching budget limits - consider reducing sampling rate
+{% else %}
+🔴 Over budget - reduce sampling rate or disable quality scoring
+{% endif %}
+{% else %}
+No quality scoring costs incurred during this period.
+{% endif %}
+
+---
+
+## Summary
+
+{% if usage.total_searches > 0 %}
+During the {{ period.days }}-day period, the recall system processed **{{ usage.total_searches }} searches** across **{{ usage.unique_sessions }} sessions**, achieving an average quality score of **{{ "%.3f"|format(quality.overall_score) }}** and saving users an estimated **{{ "%.1f"|format(impact.avg_efficiency_gain * impact.total_analyses if impact.total_analyses > 0 else 0) }} minutes** total.
+
+{% if issues %}
+**Action Items:** {{ issues|length }} issues require attention. Review recommendations above.
+{% else %}
+**Status:** System is operating nominally with no critical issues.
+{% endif %}
+{% else %}
+No recall activity detected during this period.
+{% endif %}
+
+---
+
+*Report generated by Claude Recall Analytics System*

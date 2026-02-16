@@ -22,6 +22,11 @@ from pathlib import Path
 import subprocess
 import shutil
 
+# Add scripts to path for imports
+_script_dir = str(Path(__file__).parent)
+if _script_dir not in sys.path:
+    sys.path.insert(0, _script_dir)
+
 # Import the secret redaction module (sibling script)
 try:
     from redact_secrets import SecretRedactor, RedactionReport
@@ -249,6 +254,131 @@ def redact_and_copy_transcript(transcript_path, session_dir, session_id, redacto
             print(f"WARNING: Plain copy also failed: {copy_err}", file=sys.stderr)
             return None, None
 
+def run_impact_analysis(session_id, transcript_path, session_dir, project_dir):
+    """
+    Run impact analysis for recall events in this session.
+
+    Args:
+        session_id: Current session ID
+        transcript_path: Path to session transcript
+        session_dir: Path to sessions directory
+        project_dir: Project root directory
+
+    Returns:
+        Number of analyses performed
+    """
+    try:
+        # Import impact analysis components
+        from impact_analysis import ImpactAnalyzer
+        from metrics.config import config
+
+        # Check if impact analysis is enabled
+        if not config.get('impact_analysis.enabled', True):
+            return 0
+
+        # Check minimum recall events threshold
+        min_events = config.get('impact_analysis.min_recall_events', 1)
+
+        # Load telemetry log to find recall events for this session
+        telemetry_log = Path(project_dir) / config.get(
+            'telemetry.log_path',
+            '.claude/context/sessions/recall_analytics.jsonl'
+        )
+
+        if not telemetry_log.exists():
+            return 0  # No telemetry data yet
+
+        # Find recall events for this session
+        recall_events = []
+        with open(telemetry_log) as f:
+            for line in f:
+                try:
+                    event = json.loads(line)
+                    # Match by session_id or check if event is recent
+                    if event.get('session_id') == session_id or \
+                       event.get('session_id', '').endswith(str(os.getpid())):
+                        if event.get('event_type') in ('recall_triggered', 'smart_recall_completed'):
+                            recall_events.append(event)
+                except json.JSONDecodeError:
+                    continue
+
+        if len(recall_events) < min_events:
+            return 0  # Not enough recall events to analyze
+
+        # Load current transcript
+        if not transcript_path or not Path(transcript_path).exists():
+            return 0
+
+        transcript_text = ""
+        try:
+            with open(transcript_path) as f:
+                for line in f:
+                    try:
+                        entry = json.loads(line)
+                        content = entry.get('content', '')
+                        if isinstance(content, list):
+                            content = ' '.join(
+                                str(c.get('text', '')) for c in content
+                                if isinstance(c, dict)
+                            )
+                        transcript_text += content + "\n"
+                    except json.JSONDecodeError:
+                        continue
+        except Exception:
+            return 0
+
+        # Load index to get recalled session data
+        index_path = session_dir / 'index.json'
+        if not index_path.exists():
+            return 0
+
+        with open(index_path) as f:
+            index_data = json.load(f)
+
+        # Initialize analyzer
+        analyzer = ImpactAnalyzer(log_path=session_dir / 'context_impact.jsonl')
+
+        # Analyze each recall event
+        analyses_count = 0
+        for event in recall_events:
+            event_id = event.get('event_id')
+            if not event_id:
+                continue
+
+            # Get recalled session IDs from event
+            recalled_ids = []
+            if 'results' in event and 'retrieved_sessions' in event['results']:
+                recalled_ids = event['results']['retrieved_sessions']
+
+            # Load recalled sessions from index
+            recalled_sessions = [
+                s for s in index_data.get('sessions', [])
+                if s.get('id') in recalled_ids
+            ]
+
+            if not recalled_sessions:
+                continue
+
+            # Run analysis
+            try:
+                analyzer.analyze_recall_event(
+                    recall_event_id=event_id,
+                    current_transcript=transcript_text,
+                    recalled_sessions=recalled_sessions,
+                    session_data={'timestamp': datetime.now(timezone.utc).isoformat()}
+                )
+                analyses_count += 1
+            except Exception as e:
+                print(f"WARNING: Impact analysis failed for event {event_id}: {e}", file=sys.stderr)
+                continue
+
+        return analyses_count
+
+    except Exception as e:
+        print(f"WARNING: Impact analysis error: {e}", file=sys.stderr)
+        return 0
+
+
 def auto_capture_session(hook_input):
     """
     Automatically capture session context from SessionEnd hook.
@@ -401,6 +531,19 @@ This session was automatically captured by the SessionEnd hook.
                 print(f"WARNING: Indexing failed: {result.stderr}", file=sys.stderr)
         except Exception as e:
             print(f"WARNING: Indexing error: {e}", file=sys.stderr)
+
+    # Run impact analysis if enabled
+    try:
+        analyses_count = run_impact_analysis(
+            session_id=session_id,
+            transcript_path=transcript_path,
+            session_dir=session_dir,
+            project_dir=project_dir
+        )
+        if analyses_count > 0:
+            print(f"[+] Impact analysis: {analyses_count} recall event(s) analyzed", file=sys.stderr)
+    except Exception as e:
+        print(f"WARNING: Impact analysis integration error: {e}", file=sys.stderr)
 
     # Print capture summary
     print(f"[+] Session captured: {session_file.name}", file=sys.stderr)

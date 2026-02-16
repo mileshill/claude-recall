@@ -14,6 +14,18 @@ import re
 from datetime import datetime, timezone
 from rank_bm25 import BM25Okapi
 import numpy as np
+import time
+
+# Telemetry imports
+sys.path.insert(0, str(Path(__file__).parent))
+from telemetry import (
+    get_collector,
+    get_current_session_id,
+    get_system_state
+)
+from metrics.config import config as analytics_config
+import threading
+import asyncio
 
 # Feature detection for optional semantic search
 try:
@@ -429,6 +441,36 @@ def simple_relevance_score(query: str, session: dict) -> float:
     # Normalize to 0-1
     return score / max_score if max_score > 0 else 0
 
+def run_quality_evaluation(event_id: str, query: str, results: list, search_config: dict):
+    """
+    Run quality evaluation in background thread.
+
+    Args:
+        event_id: Recall event ID
+        query: Search query
+        results: Search results
+        search_config: Search configuration
+    """
+    try:
+        # Import quality scorer
+        from quality_scoring import QualityScorer
+
+        # Initialize scorer
+        scorer = QualityScorer()
+
+        # Run async evaluation in new event loop
+        asyncio.run(scorer.evaluate_async(
+            event_id=event_id,
+            query=query,
+            results=results,
+            config_dict=search_config
+        ))
+
+    except Exception as e:
+        # Silently fail - don't crash on quality evaluation errors
+        pass
+
+
 def search_sessions(
     query: str,
     index_path: Path,
@@ -460,103 +502,241 @@ def search_sessions(
     Returns:
         List of sessions with relevance scores
     """
+    # Initialize telemetry
+    collector = get_collector()
+    start_time = time.time()
 
-    if not index_path.exists():
-        return []
+    # Start telemetry event
+    event_id = collector.start_event(
+        event_type="recall_triggered",
+        context={
+            "trigger_source": "search_index",
+            "trigger_mode": "manual",
+            "session_id": get_current_session_id(),
+            "query": {
+                "raw_query": query,
+                "query_length": len(query)
+            },
+            "search_config": {
+                "mode": search_mode,
+                "limit": limit,
+                "filters": {
+                    "scope": scope,
+                    "session_filter": session_filter,
+                    "topics_filter": topics_filter
+                }
+            }
+        }
+    )
 
-    with open(index_path, 'r') as f:
-        index = json.load(f)
+    try:
+        # Time: index load
+        load_start = time.time()
 
-    # Store index path for embedding loading
-    index['_index_path'] = str(index_path)
-
-    sessions = index.get('sessions', [])
-
-    # Apply filters first
-    filtered_sessions = sessions
-
-    if session_filter:
-        # Filter by session date/id
-        filtered_sessions = [s for s in filtered_sessions if session_filter in s['id']]
-
-    if topics_filter:
-        # Filter by topics
-        topics_lower = [t.lower() for t in topics_filter]
-        filtered_sessions = [
-            s for s in filtered_sessions
-            if any(
-                topic.lower() in [t.lower() for t in s.get('topics', [])]
-                for topic in topics_lower
-            )
-        ]
-
-    if scope != "all":
-        # Scope-specific filtering (future enhancement)
-        pass
-
-    # Create filtered index for search
-    filtered_index = {
-        'sessions': filtered_sessions,
-        'bm25_index': index.get('bm25_index'),
-        'embedding_index': index.get('embedding_index'),
-        '_index_path': index.get('_index_path')
-    }
-
-    # Choose search method based on mode
-    if search_mode == "simple":
-        # Legacy simple scoring
-        scored = [
-            {**session, "relevance_score": simple_relevance_score(query, session), "search_mode": "simple"}
-            for session in filtered_sessions
-        ]
-    elif search_mode == "semantic":
-        # Semantic only (will fail if unavailable)
-        semantic_scores = semantic_search(query, filtered_index)
-        if semantic_scores is None:
-            print("ERROR: Semantic search unavailable. Install dependencies:", file=sys.stderr)
-            print("  python3 -m pip install --user -r .claude/skills/recall/requirements-optional.txt", file=sys.stderr)
-            print("  python3 .claude/skills/recall/scripts/embed_sessions.py", file=sys.stderr)
+        if not index_path.exists():
+            collector.end_event(event_id, outcome={"success": False, "error": "index_not_found"})
             return []
 
-        scored = [
-            {**session, "relevance_score": semantic_scores[i], "semantic_score": semantic_scores[i], "search_mode": "semantic"}
-            for i, session in enumerate(filtered_sessions)
-        ]
-    elif search_mode in ("hybrid", "auto"):
-        # Hybrid or auto mode
-        has_embeddings = filtered_index.get('embedding_index') is not None and EMBEDDINGS_AVAILABLE
+        with open(index_path, 'r') as f:
+            index = json.load(f)
 
-        if has_embeddings or search_mode == "hybrid":
-            # Try hybrid search
-            scored = hybrid_search(query, filtered_index)
-        else:
-            # Fall back to BM25
-            scored = bm25_search(query, filtered_index)
-    elif search_mode == "bm25":
-        # BM25 only
-        if use_bm25 and filtered_index.get('bm25_index'):
-            scored = bm25_search(query, filtered_index)
-        else:
-            # Fallback to simple scoring
+        load_time_ms = (time.time() - load_start) * 1000
+
+        # Store index path for embedding loading
+        index['_index_path'] = str(index_path)
+
+        sessions = index.get('sessions', [])
+
+    # Apply filters first
+        filter_start = time.time()
+        filtered_sessions = sessions
+
+        if session_filter:
+            # Filter by session date/id
+            filtered_sessions = [s for s in filtered_sessions if session_filter in s['id']]
+
+        if topics_filter:
+            # Filter by topics
+            topics_lower = [t.lower() for t in topics_filter]
+            filtered_sessions = [
+                s for s in filtered_sessions
+                if any(
+                    topic.lower() in [t.lower() for t in s.get('topics', [])]
+                    for topic in topics_lower
+                )
+            ]
+
+        if scope != "all":
+            # Scope-specific filtering (future enhancement)
+            pass
+
+        filter_time_ms = (time.time() - filter_start) * 1000
+
+        # Create filtered index for search
+        filtered_index = {
+            'sessions': filtered_sessions,
+            'bm25_index': index.get('bm25_index'),
+            'embedding_index': index.get('embedding_index'),
+            '_index_path': index.get('_index_path')
+        }
+
+        # Time: search computation
+        search_start = time.time()
+
+        # Determine mode_resolved for telemetry
+        mode_resolved = search_mode
+
+        # Choose search method based on mode
+        if search_mode == "simple":
+            # Legacy simple scoring
+            mode_resolved = "simple"
             scored = [
                 {**session, "relevance_score": simple_relevance_score(query, session), "search_mode": "simple"}
                 for session in filtered_sessions
             ]
-    else:
-        # Default: use BM25 if available
-        if use_bm25 and filtered_index.get('bm25_index'):
-            scored = bm25_search(query, filtered_index)
-        else:
+        elif search_mode == "semantic":
+            # Semantic only (will fail if unavailable)
+            mode_resolved = "semantic"
+            semantic_scores = semantic_search(query, filtered_index)
+            if semantic_scores is None:
+                collector.end_event(event_id, outcome={
+                    "success": False,
+                    "error": "semantic_search_unavailable",
+                    "error_type": "DependencyError"
+                })
+                print("ERROR: Semantic search unavailable. Install dependencies:", file=sys.stderr)
+                print("  python3 -m pip install --user -r .claude/skills/recall/requirements-optional.txt", file=sys.stderr)
+                print("  python3 .claude/skills/recall/scripts/embed_sessions.py", file=sys.stderr)
+                return []
+
             scored = [
-                {**session, "relevance_score": simple_relevance_score(query, session), "search_mode": "simple"}
-                for session in filtered_sessions
+                {**session, "relevance_score": semantic_scores[i], "semantic_score": semantic_scores[i], "search_mode": "semantic"}
+                for i, session in enumerate(filtered_sessions)
             ]
+        elif search_mode in ("hybrid", "auto"):
+            # Hybrid or auto mode
+            has_embeddings = filtered_index.get('embedding_index') is not None and EMBEDDINGS_AVAILABLE
 
-    # Sort by relevance
-    scored.sort(key=lambda s: s['relevance_score'], reverse=True)
+            if has_embeddings or search_mode == "hybrid":
+                # Try hybrid search
+                mode_resolved = "hybrid"
+                scored = hybrid_search(query, filtered_index)
+            else:
+                # Fall back to BM25
+                mode_resolved = "bm25"
+                scored = bm25_search(query, filtered_index)
+        elif search_mode == "bm25":
+            # BM25 only
+            mode_resolved = "bm25"
+            if use_bm25 and filtered_index.get('bm25_index'):
+                scored = bm25_search(query, filtered_index)
+            else:
+                # Fallback to simple scoring
+                mode_resolved = "simple"
+                scored = [
+                    {**session, "relevance_score": simple_relevance_score(query, session), "search_mode": "simple"}
+                    for session in filtered_sessions
+                ]
+        else:
+            # Default: use BM25 if available
+            if use_bm25 and filtered_index.get('bm25_index'):
+                mode_resolved = "bm25"
+                scored = bm25_search(query, filtered_index)
+            else:
+                mode_resolved = "simple"
+                scored = [
+                    {**session, "relevance_score": simple_relevance_score(query, session), "search_mode": "simple"}
+                    for session in filtered_sessions
+                ]
 
-    # Apply limit
-    return scored[:limit]
+        search_time_ms = (time.time() - search_start) * 1000
+
+        # Sort by relevance
+        scored.sort(key=lambda s: s['relevance_score'], reverse=True)
+
+        # Apply limit
+        results = scored[:limit]
+
+        # Collect result statistics
+        if results:
+            scores = [r['relevance_score'] for r in results]
+            top_score = max(scores)
+            avg_score = sum(scores) / len(scores)
+            min_score = min(scores)
+
+            # Score distribution
+            score_dist = {
+                "high_0.7+": sum(1 for s in scores if s >= 0.7),
+                "medium_0.4-0.7": sum(1 for s in scores if 0.4 <= s < 0.7),
+                "low_<0.4": sum(1 for s in scores if s < 0.4)
+            }
+        else:
+            top_score = avg_score = min_score = 0.0
+            score_dist = {"high_0.7+": 0, "medium_0.4-0.7": 0, "low_<0.4": 0}
+
+        # Get system state
+        system_state = get_system_state(index_path)
+        system_state['model_cached'] = EmbeddingCache()._model is not None
+
+        # Calculate total latency
+        total_time_ms = (time.time() - start_time) * 1000
+
+        # Update telemetry with results and performance
+        collector.update_event(event_id, {
+            "search_config": {
+                "mode_resolved": mode_resolved
+            },
+            "results": {
+                "count": len(results),
+                "retrieved_sessions": [r['id'] for r in results],
+                "scores": {
+                    "top_score": top_score,
+                    "avg_score": avg_score,
+                    "min_score": min_score,
+                    "score_distribution": score_dist
+                }
+            },
+            "performance": {
+                "total_latency_ms": total_time_ms,
+                "breakdown": {
+                    "index_load_ms": load_time_ms,
+                    "filter_ms": filter_time_ms,
+                    "search_ms": search_time_ms
+                },
+                "cache_hit": False,  # No caching yet
+                "model_loaded": system_state.get('model_cached', False)
+            },
+            "system_state": system_state
+        })
+
+        # End telemetry event
+        collector.end_event(event_id, outcome={"success": True})
+
+        # Trigger quality evaluation in background (non-blocking)
+        if analytics_config.get('quality_scoring.enabled', False):
+            # Fire background thread for async evaluation
+            eval_thread = threading.Thread(
+                target=run_quality_evaluation,
+                args=(event_id, query, results, {
+                    'mode': search_mode,
+                    'mode_resolved': mode_resolved,
+                    'limit': limit
+                }),
+                daemon=True  # Don't block program exit
+            )
+            eval_thread.start()
+            # Don't wait for thread - return results immediately
+
+        return results
+
+    except Exception as e:
+        # Handle errors
+        collector.update_event(event_id, {
+            "error": str(e),
+            "error_type": type(e).__name__
+        })
+        collector.end_event(event_id, outcome={"success": False})
+        raise  # Re-raise the exception
 
 def main():
     parser = argparse.ArgumentParser(description='Search session index')
@@ -571,6 +751,9 @@ def main():
                        help='Search mode (auto=hybrid if available, else BM25)')
 
     args = parser.parse_args()
+
+    # Get collector for flush at end
+    collector = get_collector()
 
     # Parse topics
     topics_filter = args.topics.split(',') if args.topics else None
@@ -638,6 +821,9 @@ def main():
             print(f"   Topics: {', '.join(result['topics'])}")
             print(f"   File: {result['file']}")
             print()
+
+    # Flush telemetry before exit
+    collector.flush()
 
 if __name__ == "__main__":
     main()
