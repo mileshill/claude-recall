@@ -11,7 +11,7 @@ import argparse
 from pathlib import Path
 from typing import List, Dict, Optional, Tuple
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 from rank_bm25 import BM25Okapi
 import numpy as np
 
@@ -54,7 +54,7 @@ def calculate_temporal_score(session: dict, decay_days: float = 30.0) -> float:
             session_date = datetime.strptime(timestamp_str, '%Y-%m-%d')
 
         # Calculate age in days
-        now = datetime.now(session_date.tzinfo) if session_date.tzinfo else datetime.now()
+        now = datetime.now(timezone.utc if session_date.tzinfo else None)
         age_days = (now - session_date).total_seconds() / 86400
 
         # Exponential decay: score = e^(-age/decay_days)
@@ -189,11 +189,19 @@ class EmbeddingCache:
             return None
 
         try:
-            data = np.load(embedding_path)
+            data = np.load(embedding_path, allow_pickle=False)
+            if 'embeddings' not in data:
+                print(f"Warning: No 'embeddings' key found in {embedding_path}", file=sys.stderr)
+                return None
             self._embeddings = data['embeddings']
+            # Validate embeddings shape
+            if len(self._embeddings.shape) != 2:
+                print(f"Warning: Invalid embeddings shape {self._embeddings.shape}, expected 2D array", file=sys.stderr)
+                self._embeddings = None
+                return None
             return self._embeddings
         except Exception as e:
-            print(f"Warning: Failed to load embeddings: {e}", file=sys.stderr)
+            print(f"Warning: Failed to load embeddings from {embedding_path}: {e}", file=sys.stderr)
             return None
 
     def load_model(self, model_name: str = "all-MiniLM-L6-v2") -> Optional[SentenceTransformer]:
@@ -213,7 +221,11 @@ class EmbeddingCache:
             return self._model
 
         try:
-            self._model = SentenceTransformer(model_name)
+            # Suppress FutureWarning from transformers about clean_up_tokenization_spaces
+            import warnings
+            with warnings.catch_warnings():
+                warnings.filterwarnings("ignore", category=FutureWarning, module="transformers")
+                self._model = SentenceTransformer(model_name)
             self._model_name = model_name
             return self._model
         except Exception as e:
@@ -261,6 +273,13 @@ def semantic_search(
 
     embeddings = embedding_cache.load_embeddings(embedding_path)
     if embeddings is None:
+        return None
+
+    # Validate embeddings match sessions count
+    num_sessions = len(index.get('sessions', []))
+    num_embeddings = len(embeddings)
+    if num_embeddings != num_sessions:
+        print(f"Warning: Embedding count mismatch (embeddings: {num_embeddings}, sessions: {num_sessions}). Regenerate embeddings with embed_sessions.py", file=sys.stderr)
         return None
 
     # Load model
@@ -313,29 +332,51 @@ def hybrid_search(query: str, index: dict) -> List[Dict]:
     # Try to get semantic scores
     semantic_scores = semantic_search(query, index)
 
+    # Validate semantic scores length matches sessions
+    if semantic_scores is not None and len(semantic_scores) != len(sessions):
+        print(f"Warning: Semantic scores length mismatch ({len(semantic_scores)} vs {len(sessions)}). Falling back to BM25.", file=sys.stderr)
+        semantic_scores = None
+
     # Calculate final scores
     results = []
     for i, session in enumerate(sessions):
-        bm25_score = bm25_results[i].get('bm25_score', 0.0)
-        temporal_score = bm25_results[i].get('temporal_score', 0.5)
+        # Safely get BM25 scores with bounds checking
+        if i < len(bm25_results):
+            bm25_score = bm25_results[i].get('bm25_score', 0.0)
+            temporal_score = bm25_results[i].get('temporal_score', 0.5)
+            relevance_score = bm25_results[i].get('relevance_score', 0.0)
+        else:
+            # Fallback if bm25_results is shorter than expected
+            bm25_score = 0.0
+            temporal_score = 0.5
+            relevance_score = 0.0
 
         if semantic_scores is not None:
             # Hybrid: 50% BM25 + 50% semantic
-            semantic_score = semantic_scores[i]
-            relevance_score = 0.5 * bm25_score + 0.5 * semantic_score
+            try:
+                semantic_score = semantic_scores[i]
+                relevance_score = 0.5 * bm25_score + 0.5 * semantic_score
 
-            results.append({
-                **session,
-                "relevance_score": float(relevance_score),
-                "bm25_score": float(bm25_score),
-                "semantic_score": float(semantic_score),
-                "temporal_score": float(temporal_score),
-                "search_mode": "hybrid"
-            })
+                results.append({
+                    **session,
+                    "relevance_score": float(relevance_score),
+                    "bm25_score": float(bm25_score),
+                    "semantic_score": float(semantic_score),
+                    "temporal_score": float(temporal_score),
+                    "search_mode": "hybrid"
+                })
+            except (IndexError, TypeError) as e:
+                # Fall back to BM25 for this session if semantic score unavailable
+                print(f"Warning: Failed to get semantic score for session {i}: {e}", file=sys.stderr)
+                results.append({
+                    **session,
+                    "relevance_score": float(relevance_score),
+                    "bm25_score": float(bm25_score),
+                    "temporal_score": float(temporal_score),
+                    "search_mode": "bm25"
+                })
         else:
             # Fall back to BM25 + temporal (70/30 mix from bm25_search)
-            relevance_score = bm25_results[i].get('relevance_score', 0.0)
-
             results.append({
                 **session,
                 "relevance_score": float(relevance_score),
@@ -552,7 +593,7 @@ def main():
 
     # Output
     if args.format == 'json':
-        print(json.dumps(results, indent=2))
+        print(json.dumps(results, indent=2, default=str))
     elif args.format == 'files':
         # Just output file paths for easy piping
         session_dir = index_path.parent
