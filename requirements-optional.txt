@@ -1,0 +1,6 @@
+# Optional dependencies for semantic search
+# Install with: python3 -m pip install --user -r requirements-optional.txt
+
+sentence-transformers>=2.2.0  # For semantic embeddings (includes torch, transformers)
+# Dependencies: ~500MB download, includes PyTorch CPU version
+# Model: all-MiniLM-L6-v2 (~80MB additional on first use)

@@ -1,0 +1,353 @@
+#!/usr/bin/env python3
+"""
+Smart recall system for automatic context retrieval.
+Extracts topics from current context and searches relevant sessions.
+"""
+
+import json
+import sys
+import re
+from pathlib import Path
+from typing import List, Dict, Set
+from collections import Counter
+
+# Add scripts to path
+sys.path.insert(0, str(Path(__file__).parent))
+
+from search_index import search_sessions
+
+
+def extract_keywords(text: str, min_length: int = 3, max_keywords: int = 10) -> List[str]:
+    """
+    Extract important keywords from text.
+
+    Args:
+        text: Input text to analyze
+        min_length: Minimum keyword length
+        max_keywords: Maximum keywords to return
+
+    Returns:
+        List of important keywords
+    """
+    # Convert to lowercase
+    text_lower = text.lower()
+
+    # Remove common stop words
+    stop_words = {
+        'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
+        'of', 'with', 'by', 'from', 'as', 'is', 'was', 'are', 'were', 'been',
+        'be', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would',
+        'could', 'should', 'may', 'might', 'can', 'this', 'that', 'these',
+        'those', 'i', 'you', 'he', 'she', 'it', 'we', 'they', 'what', 'which',
+        'who', 'when', 'where', 'why', 'how', 'all', 'each', 'every', 'both',
+        'few', 'more', 'most', 'some', 'such', 'no', 'nor', 'not', 'only',
+        'own', 'same', 'so', 'than', 'too', 'very', 'just', 'now', 'get',
+        'make', 'go', 'see', 'know', 'take', 'use', 'find', 'give', 'tell',
+        'work', 'call', 'try', 'ask', 'need', 'feel', 'become', 'leave',
+        'put', 'mean', 'keep', 'let', 'begin', 'seem', 'help', 'talk',
+        'turn', 'start', 'show', 'move', 'like', 'live', 'believe',
+        'happen', 'write', 'sit', 'stand', 'lose', 'pay', 'meet', 'run',
+        'im', 'ive', 'id', 'ill', 'youre', 'youve', 'youd', 'youll',
+        'hes', 'shes', 'its', 'were', 'theyre', 'theyve', 'theyd',
+        'dont', 'doesnt', 'didnt', 'wont', 'wouldnt', 'couldnt', 'shouldnt',
+        'cant', 'cannot', 'isnt', 'arent', 'wasnt', 'werent', 'hasnt', 'havent'
+    }
+
+    # Extract words
+    words = re.findall(r'\b[a-z]+\b', text_lower)
+
+    # Filter by length and stop words
+    filtered_words = [
+        word for word in words
+        if len(word) >= min_length and word not in stop_words
+    ]
+
+    # Count frequency
+    word_counts = Counter(filtered_words)
+
+    # Get top keywords
+    top_keywords = [word for word, count in word_counts.most_common(max_keywords)]
+
+    return top_keywords
+
+
+def extract_technical_terms(text: str) -> Set[str]:
+    """
+    Extract technical terms and acronyms from text.
+
+    Args:
+        text: Input text
+
+    Returns:
+        Set of technical terms
+    """
+    terms = set()
+
+    # Find acronyms (2-5 uppercase letters)
+    acronyms = re.findall(r'\b[A-Z]{2,5}\b', text)
+    terms.update(acronym.lower() for acronym in acronyms)
+
+    # Find camelCase/PascalCase terms
+    camel_case = re.findall(r'\b[a-z]+[A-Z][a-zA-Z]*\b|\b[A-Z][a-z]+[A-Z][a-zA-Z]*\b', text)
+    terms.update(term.lower() for term in camel_case)
+
+    # Find snake_case terms
+    snake_case = re.findall(r'\b[a-z]+_[a-z_]+\b', text)
+    terms.update(term for term in snake_case)
+
+    # Find kebab-case terms
+    kebab_case = re.findall(r'\b[a-z]+-[a-z-]+\b', text)
+    terms.update(term for term in kebab_case)
+
+    # Find file extensions and tech keywords
+    tech_patterns = [
+        r'\b(?:python|javascript|typescript|react|vue|angular|django|flask|fastapi|node|npm|pip|docker|kubernetes|aws|azure|gcp)\b',
+        r'\b(?:api|rest|graphql|sql|nosql|database|redis|mongodb|postgres|mysql)\b',
+        r'\b(?:git|github|gitlab|ci|cd|devops|testing|pytest|jest|unit|integration)\b',
+        r'\b(?:frontend|backend|fullstack|microservice|serverless|cloud)\b',
+        r'\b(?:security|authentication|authorization|oauth|jwt|encryption)\b',
+        r'\b(?:performance|optimization|scaling|caching|monitoring)\b'
+    ]
+
+    for pattern in tech_patterns:
+        matches = re.findall(pattern, text.lower())
+        terms.update(matches)
+
+    return terms
+
+
+def analyze_context(context_text: str) -> Dict[str, any]:
+    """
+    Analyze context text and extract search terms.
+
+    Args:
+        context_text: Text to analyze
+
+    Returns:
+        Dictionary with keywords, technical terms, and suggested query
+    """
+    # Extract keywords
+    keywords = extract_keywords(context_text, max_keywords=10)
+
+    # Extract technical terms
+    tech_terms = extract_technical_terms(context_text)
+
+    # Combine for search query
+    all_terms = list(set(keywords) | tech_terms)
+
+    # Create search query (top 5 most relevant terms)
+    # Prioritize technical terms, then keywords
+    priority_terms = list(tech_terms)[:3] + keywords[:2]
+    search_query = ' '.join(priority_terms[:5])
+
+    return {
+        'keywords': keywords,
+        'tech_terms': list(tech_terms),
+        'all_terms': all_terms,
+        'search_query': search_query
+    }
+
+
+def smart_recall(
+    context_text: str = None,
+    index_path: Path = None,
+    search_mode: str = "auto",
+    limit: int = 3,
+    min_relevance: float = 0.3,
+    verbose: bool = False
+) -> List[Dict]:
+    """
+    Smart recall: analyze context and search for relevant sessions.
+
+    Args:
+        context_text: Context to analyze (from beads, git, or user input)
+        index_path: Path to session index
+        search_mode: Search mode (auto/hybrid/bm25/semantic)
+        limit: Maximum results to return
+        min_relevance: Minimum relevance score threshold
+        verbose: Print analysis details
+
+    Returns:
+        List of relevant sessions with scores
+    """
+    if index_path is None:
+        index_path = Path(".claude/context/sessions/index.json")
+        if not index_path.is_absolute():
+            index_path = Path.cwd() / index_path
+
+    if not index_path.exists():
+        if verbose:
+            print("No session index found. Run auto_capture.py to create sessions.", file=sys.stderr)
+        return []
+
+    # If no context provided, try to infer from environment
+    if context_text is None:
+        context_text = infer_context()
+
+    if not context_text:
+        if verbose:
+            print("No context to analyze.", file=sys.stderr)
+        return []
+
+    # Analyze context
+    analysis = analyze_context(context_text)
+
+    if verbose:
+        print("\n=== Smart Recall Analysis ===", file=sys.stderr)
+        print(f"Keywords: {', '.join(analysis['keywords'][:5])}", file=sys.stderr)
+        print(f"Technical terms: {', '.join(analysis['tech_terms'][:5])}", file=sys.stderr)
+        print(f"Search query: {analysis['search_query']}", file=sys.stderr)
+        print("=" * 50 + "\n", file=sys.stderr)
+
+    # Search for relevant sessions
+    results = search_sessions(
+        query=analysis['search_query'],
+        index_path=index_path,
+        search_mode=search_mode,
+        limit=limit * 2  # Get more results, then filter by relevance
+    )
+
+    # Filter by minimum relevance
+    filtered_results = [
+        result for result in results
+        if result.get('relevance_score', 0) >= min_relevance
+    ]
+
+    # Return top N results
+    return filtered_results[:limit]
+
+
+def infer_context() -> str:
+    """
+    Infer context from environment (beads issues, git status, etc.).
+
+    Returns:
+        Inferred context text
+    """
+    context_parts = []
+
+    # Try to get open beads issues
+    try:
+        from subprocess import run, PIPE
+        result = run(['bd', 'list', '--status=open', '--status=in_progress'],
+                    capture_output=True, text=True, timeout=2)
+        if result.returncode == 0:
+            context_parts.append(result.stdout)
+    except Exception:
+        pass
+
+    # Try to get recent git commits
+    try:
+        result = run(['git', 'log', '-5', '--oneline'],
+                    capture_output=True, text=True, timeout=2)
+        if result.returncode == 0:
+            context_parts.append(result.stdout)
+    except Exception:
+        pass
+
+    # Try to get git branch name
+    try:
+        result = run(['git', 'branch', '--show-current'],
+                    capture_output=True, text=True, timeout=2)
+        if result.returncode == 0:
+            context_parts.append(result.stdout.strip())
+    except Exception:
+        pass
+
+    return '\n'.join(context_parts)
+
+
+def format_recall_output(results: List[Dict], context_text: str = None) -> str:
+    """
+    Format recall results for display.
+
+    Args:
+        results: Search results
+        context_text: Original context (optional)
+
+    Returns:
+        Formatted output string
+    """
+    if not results:
+        return "No relevant sessions found."
+
+    output = []
+    output.append("=" * 60)
+    output.append("🧠 Smart Recall: Relevant Context Found")
+    output.append("=" * 60)
+
+    if context_text:
+        analysis = analyze_context(context_text)
+        output.append(f"\n📊 Analyzed: {', '.join(analysis['tech_terms'][:3] + analysis['keywords'][:2])}")
+
+    output.append(f"\n🔍 Found {len(results)} relevant session(s):\n")
+
+    for i, result in enumerate(results, 1):
+        score = result.get('relevance_score', 0)
+        confidence = "HIGH" if score > 0.7 else "MEDIUM" if score > 0.4 else "LOW"
+
+        output.append(f"{i}. {result['id']} (Score: {score:.2f} {confidence})")
+        output.append(f"   Summary: {result['summary']}")
+        output.append(f"   Topics: {', '.join(result['topics'][:5])}")
+
+        # Show score breakdown if available
+        if 'bm25_score' in result and 'semantic_score' in result:
+            output.append(f"   BM25: {result['bm25_score']:.2f} | "
+                        f"Semantic: {result['semantic_score']:.2f} | "
+                        f"Mode: {result.get('search_mode', 'unknown')}")
+
+        output.append(f"   File: .claude/context/sessions/{result['file']}")
+        output.append("")
+
+    output.append("=" * 60)
+    output.append("💡 Use /rlm to analyze these sessions in depth")
+    output.append("=" * 60)
+
+    return '\n'.join(output)
+
+
+def main():
+    """CLI interface for smart recall."""
+    import argparse
+
+    parser = argparse.ArgumentParser(description='Smart context recall')
+    parser.add_argument('--context', help='Context text to analyze')
+    parser.add_argument('--context-file', help='Read context from file')
+    parser.add_argument('--index', default='.claude/context/sessions/index.json', help='Index path')
+    parser.add_argument('--mode', default='auto', choices=['auto', 'hybrid', 'bm25', 'semantic'])
+    parser.add_argument('--limit', type=int, default=3, help='Max results')
+    parser.add_argument('--min-relevance', type=float, default=0.3, help='Min relevance score')
+    parser.add_argument('--verbose', action='store_true', help='Show analysis details')
+    parser.add_argument('--json', action='store_true', help='Output as JSON')
+
+    args = parser.parse_args()
+
+    # Get context
+    context_text = args.context
+    if args.context_file:
+        context_text = Path(args.context_file).read_text()
+
+    # Resolve index path
+    index_path = Path(args.index)
+    if not index_path.is_absolute():
+        index_path = Path.cwd() / index_path
+
+    # Smart recall
+    results = smart_recall(
+        context_text=context_text,
+        index_path=index_path,
+        search_mode=args.mode,
+        limit=args.limit,
+        min_relevance=args.min_relevance,
+        verbose=args.verbose
+    )
+
+    # Output
+    if args.json:
+        print(json.dumps(results, indent=2))
+    else:
+        print(format_recall_output(results, context_text))
+
+
+if __name__ == "__main__":
+    main()
