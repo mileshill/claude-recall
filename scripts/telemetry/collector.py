@@ -57,7 +57,7 @@ class TelemetryCollector:
 
         # Configure logging
         log_path_str = config.get('telemetry.log_path', '.claude/context/sessions/recall_analytics.jsonl')
-        self.log_path = Path(log_path_str)
+        self.log_path = Path(log_path_str).expanduser()
 
         # Make path absolute if not already
         if not self.log_path.is_absolute():

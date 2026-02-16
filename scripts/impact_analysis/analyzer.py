@@ -45,7 +45,7 @@ class ImpactAnalyzer:
                 'impact_analysis.log_path',
                 '.claude/context/sessions/context_impact.jsonl'
             )
-            log_path = Path(log_path_str)
+            log_path = Path(log_path_str).expanduser()
 
         # Make absolute
         if not log_path.is_absolute():

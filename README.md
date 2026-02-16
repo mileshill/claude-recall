@@ -57,6 +57,14 @@ python3 scripts/run_quality_checks.py --quick
 python3 scripts/generate_recall_report.py --period 30 --output report.md
 ```
 
+**Analytics Storage:**
+All analytics logs are stored in `~/.claude/context/sessions/`:
+- `recall_analytics.jsonl` - Telemetry events
+- `context_impact.jsonl` - Impact analysis results
+- `quality_scores.jsonl` - Quality evaluation scores
+
+These paths are centralized so that all projects using Claude Recall (via symlinks or shared installations) contribute to the same analytics database, providing comprehensive insights across your entire workflow.
+
 See [Analytics Guide](docs/ANALYTICS_GUIDE.md) for complete documentation.
 
 ## 📖 Full Documentation

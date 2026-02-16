@@ -78,7 +78,7 @@ class AnalyticsConfig:
             "version": "1.0.0",
             "telemetry": {
                 "enabled": True,
-                "log_path": ".claude/context/sessions/recall_analytics.jsonl",
+                "log_path": "~/.claude/context/sessions/recall_analytics.jsonl",
                 "sampling_rate": 1.0,
                 "batch_size": 10,
                 "batch_flush_interval_sec": 5.0,
@@ -87,7 +87,7 @@ class AnalyticsConfig:
             },
             "impact_analysis": {
                 "enabled": True,
-                "log_path": ".claude/context/sessions/context_impact.jsonl",
+                "log_path": "~/.claude/context/sessions/context_impact.jsonl",
                 "auto_analyze_on_session_end": True,
                 "min_recall_events": 1
             },
@@ -97,7 +97,7 @@ class AnalyticsConfig:
                 "api_key_env": "ANTHROPIC_API_KEY",
                 "model": "claude-3-haiku-20240307",
                 "sampling_rate": 0.1,
-                "log_path": ".claude/context/sessions/quality_scores.jsonl",
+                "log_path": "~/.claude/context/sessions/quality_scores.jsonl",
                 "fallback_to_heuristic": True,
                 "async_evaluation": True,
                 "timeout_sec": 30,
@@ -106,7 +106,7 @@ class AnalyticsConfig:
             "quality_checks": {
                 "enabled": True,
                 "schedule": "daily",
-                "log_path": ".claude/context/sessions/quality_check_log.jsonl",
+                "log_path": "~/.claude/context/sessions/quality_check_log.jsonl",
                 "checks": {
                     "low_relevance": {
                         "enabled": True,
@@ -146,7 +146,7 @@ class AnalyticsConfig:
                 "enabled": True,
                 "default_period_days": 30,
                 "default_format": "markdown",
-                "output_dir": ".claude/context/reports",
+                "output_dir": "~/.claude/context/reports",
                 "include_charts": False
             },
             "retention": {

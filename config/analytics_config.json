@@ -2,7 +2,7 @@
   "version": "1.0.0",
   "telemetry": {
     "enabled": true,
-    "log_path": ".claude/context/sessions/recall_analytics.jsonl",
+    "log_path": "~/.claude/context/sessions/recall_analytics.jsonl",
     "sampling_rate": 1.0,
     "batch_size": 10,
     "batch_flush_interval_sec": 5.0,
@@ -11,7 +11,7 @@
   },
   "impact_analysis": {
     "enabled": true,
-    "log_path": ".claude/context/sessions/context_impact.jsonl",
+    "log_path": "~/.claude/context/sessions/context_impact.jsonl",
     "auto_analyze_on_session_end": true,
     "min_recall_events": 1
   },
@@ -21,7 +21,7 @@
     "api_key_env": "ANTHROPIC_API_KEY",
     "model": "claude-3-haiku-20240307",
     "sampling_rate": 0.1,
-    "log_path": ".claude/context/sessions/quality_scores.jsonl",
+    "log_path": "~/.claude/context/sessions/quality_scores.jsonl",
     "fallback_to_heuristic": true,
     "async_evaluation": true,
     "timeout_sec": 30,
@@ -30,7 +30,7 @@
   "quality_checks": {
     "enabled": true,
     "schedule": "daily",
-    "log_path": ".claude/context/sessions/quality_check_log.jsonl",
+    "log_path": "~/.claude/context/sessions/quality_check_log.jsonl",
     "checks": {
       "low_relevance": {
         "enabled": true,
@@ -70,7 +70,7 @@
     "enabled": true,
     "default_period_days": 30,
     "default_format": "markdown",
-    "output_dir": ".claude/context/reports",
+    "output_dir": "~/.claude/context/reports",
     "include_charts": false
   },
   "retention": {

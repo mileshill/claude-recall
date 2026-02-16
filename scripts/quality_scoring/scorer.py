@@ -57,7 +57,7 @@ class QualityScorer:
                 'quality_scoring.log_path',
                 '.claude/context/sessions/quality_scores.jsonl'
             )
-            log_path = Path(log_path_str)
+            log_path = Path(log_path_str).expanduser()
 
         if not log_path.is_absolute():
             log_path = Path.cwd() / log_path
