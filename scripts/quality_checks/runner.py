@@ -134,7 +134,12 @@ class QualityCheckRunner:
         for check_class in checks_to_run:
             try:
                 # Get check-specific config
-                check_config = self.config.get(check_class.__name__, {})
+                check_config = self.config.get(check_class.__name__, {}).copy()
+
+                # Inject sessions_dir-specific paths for checks that need them
+                if check_class.__name__ == "IndexHealthCheck":
+                    # Set index_path based on sessions_dir
+                    check_config["index_path"] = str(self.sessions_dir / "index.json")
 
                 # Instantiate and run check
                 check = check_class(config=check_config)

@@ -165,6 +165,16 @@ Avg: 850ms, P95: 1450ms
 
 **Tuning:**
 - **Set custom index_path** if using non-default location
+- **Use `--sessions-dir` flag** to check project-specific indexes
+
+**Checking Project-Specific Sessions:**
+```bash
+# Check a specific project's sessions
+python3 scripts/run_quality_checks.py \
+  --sessions-dir ~/PycharmProjects/myproject/.claude/context/sessions
+
+# This automatically sets the correct index path for IndexHealthCheck
+```
 
 **Action Items:**
 1. Rebuild index: `python3 scripts/build_index.py`
@@ -302,6 +312,9 @@ python3 scripts/run_quality_checks.py --verbose
 
 # Check specific hours
 python3 scripts/run_quality_checks.py --hours 48
+
+# Check project-specific sessions (not global)
+python3 scripts/run_quality_checks.py --sessions-dir ~/path/to/project/.claude/context/sessions
 ```
 
 ### Check Specific Issues
