@@ -70,18 +70,31 @@ Claude: I'll search for previous work on authentication...
 
         Found session from 2026-02-10 where you implemented
         JWT refresh and fixed the timeout bug...
+
+        💬 Relevant conversation excerpts:
+
+        👤 User: We need to add refresh token rotation...
+        🤖 Assistant: I'll implement JWT refresh with automatic
+             rotation. Here's the approach...
 ```
+
+**What You Get:**
+- 📄 Session metadata (date, topics, summary)
+- 💬 **Actual conversation excerpts** from transcripts (NEW!)
+- 🎯 Query-relevant snippets automatically extracted
+- ⚡ Fast: 15ms extraction overhead
 
 ## 📊 Analytics & Insights (Optional)
 
 Track recall efficacy and optimize performance with the built-in analytics system:
 
 **Features:**
-- 📈 **Telemetry**: Automatic tracking of all recall operations
+- 📈 **Telemetry**: Automatic tracking of all recall operations + excerpt extraction metrics
 - 🎯 **Impact Analysis**: Measure conversation continuity and time saved
 - ⭐ **Quality Scoring**: LLM-based evaluation (optional, ~$0.50/month)
 - 🔍 **Quality Checks**: 7 automated health monitors
 - 📑 **Reporting**: Generate comprehensive analytics reports
+- 💬 **Excerpt Analytics**: Track excerpt usage, performance, and quality impact
 
 **Quick Start:**
 ```bash

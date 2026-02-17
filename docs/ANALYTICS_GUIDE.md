@@ -71,8 +71,16 @@ python3 scripts/run_quality_checks.py --quick
 - Search results (count, scores, sessions found)
 - Performance metrics (latency breakdown, cache hits)
 - System state (index size, memory usage)
+- **Excerpt extraction** (NEW: chars extracted, extraction time, hit rate)
 
 **Log file:** `~/.claude/context/sessions/recall_analytics.jsonl`
+
+**Excerpt Tracking:**
+The system now tracks when transcript excerpts are shown to agents:
+- Extraction performance (avg 15ms overhead)
+- Content volume (avg chars per session)
+- Hit rate (sessions with vs. without excerpts)
+- Per-session breakdown
 
 **Configuration:**
 ```json
@@ -250,6 +258,61 @@ cat ~/.claude/context/sessions/quality_scores.jsonl | \
 # View impact analysis
 cat ~/.claude/context/sessions/context_impact.jsonl | \
   jq -r '"\(.session_id): \(.continuity_score) continuity, \(.efficiency_metrics.estimated_time_saved_minutes)min saved"'
+
+# Excerpt extraction analytics (NEW)
+cat ~/.claude/context/sessions/recall_analytics.jsonl | \
+  jq 'select(.event_type=="excerpt_extraction_completed") | .excerpts'
+
+# Excerpt performance summary
+cat ~/.claude/context/sessions/recall_analytics.jsonl | \
+  jq -s 'map(select(.event_type=="excerpt_extraction_completed") | .excerpts) | {
+    total_extractions: length,
+    avg_chars: (map(.total_excerpt_chars) | add / length),
+    avg_time_ms: (map(.total_extraction_time_ms) | add / length),
+    hit_rate: (map(.sessions_with_excerpts / .total_sessions) | add / length * 100)
+  }'
+
+# Compare recall with vs without excerpts
+# (requires data from before and after feature deployment)
+python3 scripts/compare_excerpt_impact.py --before 2026-02-10:2026-02-17 --after 2026-02-17:2026-02-24
+```
+
+### Analyzing Excerpt Impact
+
+The excerpt feature shows actual conversation content instead of just metadata. To evaluate its impact:
+
+**1. Performance Overhead:**
+```bash
+# Check average extraction time
+jq -s 'map(select(.event_type=="excerpt_extraction_completed")) |
+  map(.excerpts.avg_extraction_ms) | add / length' \
+  ~/.claude/context/sessions/recall_analytics.jsonl
+```
+
+**2. Hit Rate (how often excerpts are found):**
+```bash
+# Calculate excerpt hit rate
+jq -s 'map(select(.event_type=="excerpt_extraction_completed")) |
+  {
+    with_excerpts: map(.excerpts.sessions_with_excerpts) | add,
+    total_sessions: map(.excerpts.total_sessions) | add
+  } |
+  (.with_excerpts / .total_sessions * 100 | round)' \
+  ~/.claude/context/sessions/recall_analytics.jsonl
+```
+
+**3. Content Volume:**
+```bash
+# Average characters shown per recall operation
+jq -s 'map(select(.event_type=="excerpt_extraction_completed")) |
+  map(.excerpts.total_excerpt_chars) | add / length | round' \
+  ~/.claude/context/sessions/recall_analytics.jsonl
+```
+
+**4. Quality Impact (requires before/after data):**
+
+See [Excerpt Evaluation Plan](EXCERPT_EVALUATION_PLAN.md) for the complete methodology to compare quality scores, continuity, and usage patterns before and after the excerpt feature.
+
 ```
 
 ## Configuration
@@ -425,6 +488,8 @@ Analytics are only useful if you act on them:
 ## See Also
 
 - [Telemetry Schema Reference](TELEMETRY_SCHEMA.md)
+- [Quality Checks Guide](QUALITY_CHECKS_GUIDE.md)
 - [Quality Checks Scheduling](QUALITY_CHECKS_SCHEDULING.md)
+- [Excerpt Evaluation Plan](EXCERPT_EVALUATION_PLAN.md)
 - [Configuration Reference](ANALYTICS_CONFIG.md)
 - [Main README](../README.md)

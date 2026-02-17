@@ -220,6 +220,60 @@ Logged when smart recall completes.
 | `results_formatted` | boolean | Whether results were formatted |
 | `output_length` | number | Length of formatted output |
 
+### excerpt_extraction_completed
+
+Logged when transcript excerpts are extracted and displayed.
+
+**Event Type:** `excerpt_extraction_completed`
+
+**Fields:**
+```json
+{
+  "event_id": null,
+  "timestamp": "2026-02-17T22:27:19.746257+00:00",
+  "event_type": "excerpt_extraction_completed",
+  "session_id": "pid_84379",
+  "recall_event_id": "7acddd02-abad-4812-a845-6921540dae71",
+  "excerpts": {
+    "enabled": true,
+    "sessions_with_excerpts": 1,
+    "total_sessions": 1,
+    "total_excerpt_chars": 1785,
+    "total_extraction_time_ms": 15.59,
+    "excerpts_by_session": [
+      {
+        "session_id": "2026-02-17_031626_session",
+        "char_count": 1785,
+        "extraction_ms": 15.59
+      }
+    ],
+    "avg_chars_per_session": 1785,
+    "avg_extraction_ms": 15.59
+  }
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `recall_event_id` | string | ID of the parent smart_recall_completed event |
+| `excerpts.enabled` | boolean | Whether excerpt extraction was enabled |
+| `excerpts.sessions_with_excerpts` | number | Number of sessions with excerpts found |
+| `excerpts.total_sessions` | number | Total sessions searched |
+| `excerpts.total_excerpt_chars` | number | Total characters in all excerpts |
+| `excerpts.total_extraction_time_ms` | number | Total time spent extracting excerpts |
+| `excerpts.excerpts_by_session` | array | Per-session excerpt statistics |
+| `excerpts.avg_chars_per_session` | number | Average characters per session |
+| `excerpts.avg_extraction_ms` | number | Average extraction time per session |
+
+**Purpose:**
+Tracks the performance and usage of the transcript excerpt feature, which automatically shows relevant conversation snippets from session transcripts instead of just metadata summaries.
+
+**Use Cases:**
+- Measure excerpt extraction performance overhead
+- Evaluate feature adoption (hit rate)
+- Optimize excerpt length and count
+- Compare recall quality with vs. without excerpts
+
 ## Quality Scoring Events
 
 Quality scoring events are logged separately to:
