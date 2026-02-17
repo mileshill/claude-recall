@@ -34,6 +34,44 @@ bash install.sh
 
 See [INSTALL.md](INSTALL.md) for all installation methods.
 
+### Usage
+
+**Manual Search with `/recall` Skill:**
+```bash
+# Search by topic
+/recall query="How did we implement authentication?"
+
+# Search specific date
+/recall query="What was done?" session=2026-02-16
+
+# Filter by topics
+/recall topics="bug-fix, performance"
+
+# More results with verbose output
+/recall query="database changes" limit=10 --verbose
+```
+
+**Proactive Recall (Automatic):**
+
+Once installed, Claude automatically searches when you:
+- Ask to "review previous conversations"
+- Mention "last time we worked on X"
+- Reference past implementations or decisions
+- Ask "what did we do with Y?"
+
+Just ask naturally - no commands needed!
+
+**Example:**
+```
+You: "Review what we did with the authentication flow"
+
+Claude: I'll search for previous work on authentication...
+        [Automatically uses /recall]
+
+        Found session from 2026-02-10 where you implemented
+        JWT refresh and fixed the timeout bug...
+```
+
 ## 📊 Analytics & Insights (Optional)
 
 Track recall efficacy and optimize performance with the built-in analytics system:

@@ -101,7 +101,7 @@ Automatically searches for relevant context when you start a session.
    File: .claude/context/sessions/2026-02-05_091234_session.md
 
 ============================================================
-💡 Use /rlm to analyze these sessions in depth
+💡 Use Read tool to view full session files for more details
 ============================================================
 ```
 
@@ -111,20 +111,34 @@ Automatically searches for relevant context when you start a session.
 
 You explicitly ask Claude to search for context.
 
-**Commands**:
+**Using the `/recall` Skill (Recommended)**:
 ```bash
-# You say: "Search for past work on authentication"
-# Claude runs:
+# Simple query
+/recall query="How did we implement authentication?"
+
+# Search specific date
+/recall query="What was done?" session=2026-02-16
+
+# Filter by topics
+/recall topics="authentication, security"
+
+# With more results and verbose output
+/recall query="bug fixes" limit=10 --verbose
+```
+
+**Using Python Scripts Directly**:
+```bash
+# Basic search with search_index.py
 python3 .claude/skills/recall/scripts/search_index.py \
   --query "authentication security" \
   --mode hybrid
 
-# Or use smart recall (auto keyword extraction):
+# Smart recall with keyword extraction
 python3 .claude/skills/recall/scripts/smart_recall.py \
   --context "authentication and security work"
 ```
 
-**Status**: ✅ Always available
+**Status**: ✅ Always available - use `/recall` for simplest experience
 
 ## How Claude Uses Recall
 

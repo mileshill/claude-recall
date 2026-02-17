@@ -148,7 +148,9 @@ copy_files() {
   # Copy scripts
   print_info "Copying scripts..."
   cp "$SOURCE_DIR/scripts/"*.py "$INSTALL_DIR/scripts/"
+  cp "$SOURCE_DIR/scripts/"*.sh "$INSTALL_DIR/scripts/" 2>/dev/null || true
   chmod +x "$INSTALL_DIR/scripts/"*.py
+  chmod +x "$INSTALL_DIR/scripts/"*.sh 2>/dev/null || true
   print_success "Scripts installed"
 
   # Copy config
@@ -166,12 +168,17 @@ copy_files() {
   cp "$SOURCE_DIR/requirements-"*.txt "$INSTALL_DIR/"
   print_success "Requirements files installed"
 
+  # Copy SKILL.md
+  print_info "Copying SKILL.md..."
+  cp "$SOURCE_DIR/SKILL.md" "$INSTALL_DIR/" 2>/dev/null || true
+  print_success "SKILL.md installed"
+
   # Copy documentation
   print_info "Copying documentation..."
   cp "$SOURCE_DIR/README.md" "$INSTALL_DIR/" 2>/dev/null || true
   cp "$SOURCE_DIR/SEMANTIC_SEARCH.md" "$INSTALL_DIR/" 2>/dev/null || true
   cp "$SOURCE_DIR/INSTALL.md" "$INSTALL_DIR/" 2>/dev/null || true
-  cp "$SOURCE_DIR/../PROACTIVE_RECALL_GUIDE.md" "$DOCS_DIR/" 2>/dev/null || true
+  cp "$SOURCE_DIR/PROACTIVE_RECALL_GUIDE.md" "$DOCS_DIR/" 2>/dev/null || true
   print_success "Documentation installed"
 
   echo ""
@@ -257,20 +264,79 @@ update_claude_md() {
   fi
 
   # Check if proactive recall section already exists
-  if grep -q "Proactive Context Recall" "$CLAUDE_MD"; then
+  if grep -q "Context Recall System" "$CLAUDE_MD"; then
     print_info "CLAUDE.md already contains recall instructions"
   else
     print_info "Adding proactive recall instructions to CLAUDE.md..."
     cat >> "$CLAUDE_MD" <<'EOF'
 
-## Proactive Context Recall
+## Context Recall System
 
-See .claude/PROACTIVE_RECALL_GUIDE.md for complete instructions.
+This project has an automatic session recall system that helps maintain continuity across conversations.
 
-Quick reference:
-- System automatically searches when topics mentioned
-- SessionStart hook provides context at session start
-- Use search_index.py or smart_recall.py for on-demand searches
+### When to Use Recall
+
+**Proactively search for relevant context when**:
+
+1. The user mentions "previous work", "last time", "before", or "earlier"
+2. The user asks about implementation history: "How did we build X?"
+3. The user references features, bugs, or components that might have history
+4. The user explicitly asks to "review previous conversations" or "check past sessions"
+5. You're about to implement something that might have been discussed before
+6. The user asks "what did we work on last?" or similar questions
+
+### How to Search
+
+When you need to recall context, use the `/recall` skill:
+
+```bash
+# Basic search
+/recall query="How did we implement X?"
+
+# Search specific session
+/recall query="What changes were made?" session=2026-02-16
+
+# Filter by topics
+/recall topics="authentication, security"
+```
+
+**Important**: The `/recall` skill is available and should be used proactively. Don't just mention it - actually invoke it when the user's question or task would benefit from historical context.
+
+### Automatic Session Capture
+
+- Every session is automatically captured when you exit
+- Sessions include: transcript, git changes, topics, and summaries
+- All captured sessions are searchable via `/recall`
+- Sessions are stored in `.claude/context/sessions/`
+
+### Example Workflow
+
+```
+User: "Review what we did with feature X"
+
+You: I'll search for previous work on feature X.
+     [Uses /recall query="feature X"]
+
+     Based on session 2026-02-10, you implemented Y
+     and added Z functionality.
+
+     [Continue with specific details from the recalled session]
+```
+
+### When NOT to Use Recall
+
+- For questions answerable from current codebase (use Read/Grep instead)
+- For general knowledge questions
+- When the user is clearly starting something entirely new
+
+### Performance Notes
+
+- Recall searches are fast (~10-50ms)
+- Results are ranked by relevance and recency
+- Only sessions with min 0.3 relevance score are returned
+- Search uses BM25 + semantic embeddings for best results
+
+For complete documentation, see `.claude/PROACTIVE_RECALL_GUIDE.md`
 
 EOF
     print_success "CLAUDE.md updated"

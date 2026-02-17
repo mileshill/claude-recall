@@ -362,7 +362,7 @@ def format_recall_output(results: List[Dict], context_text: str = None) -> str:
         output.append("")
 
     output.append("=" * 60)
-    output.append("💡 Use /rlm to analyze these sessions in depth")
+    output.append("💡 Use Read tool to view full session files for more details")
     output.append("=" * 60)
 
     return '\n'.join(output)
