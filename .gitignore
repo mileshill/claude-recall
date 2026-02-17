@@ -44,3 +44,9 @@ htmlcov/
 
 # Logs
 *.log
+
+# Runtime session data (analytics)
+.claude/context/sessions/*.jsonl
+.claude/context/sessions/index.json
+.claude/context/sessions/*.md
+.claude/context/sessions/embeddings.npz

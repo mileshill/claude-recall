@@ -441,6 +441,71 @@ python3 .claude/skills/recall/scripts/embed_sessions.py
 ls -lh .claude/context/sessions/embeddings.npz
 ```
 
+### Issue: "Analytics reports show no data"
+
+**Problem**: Reports show "No search activity recorded" despite using recall.
+
+**Root Causes & Solutions**:
+
+1. **Event type mismatch** (Fixed in v1.0.1):
+   ```bash
+   # Verify you have the latest aggregator.py
+   grep "recall_triggered" ~/.claude/shared/recall/scripts/reporting/aggregator.py
+   # Should find multiple matches
+   ```
+
+2. **Hooks not configured**:
+   ```bash
+   # Check if hooks are configured
+   grep -A 10 "hooks" ~/.claude/settings.json
+
+   # Should see SessionStart and SessionEnd hooks
+   # If missing, add them (see Step 3 in Method 3 above)
+   ```
+
+3. **Incorrect hook paths**:
+   - If using shared install at `~/.claude/shared/recall/`, hooks should use absolute paths:
+   ```json
+   {
+     "hooks": {
+       "SessionStart": [{
+         "matcher": "*",
+         "hooks": [{
+           "type": "command",
+           "command": "python3 ~/.claude/shared/recall/scripts/session_start_recall.py"
+         }]
+       }],
+       "SessionEnd": [{
+         "matcher": "*",
+         "hooks": [{
+           "type": "command",
+           "command": "python3 ~/.claude/shared/recall/scripts/auto_capture.py"
+         }]
+       }]
+     }
+   }
+   ```
+
+4. **Quality scoring disabled**:
+   ```bash
+   # Check config
+   grep -A 2 "quality_scoring" ~/.claude/shared/recall/config/analytics_config.json
+
+   # Enable if needed (costs ~$0.50/month with API key, or free with heuristic fallback)
+   # Edit config/analytics_config.json: "enabled": true
+   ```
+
+5. **Impact analysis not running**:
+   ```bash
+   # Verify impact log exists after a session ends
+   ls -la ~/.claude/context/sessions/context_impact.jsonl
+
+   # If missing, hooks may not be triggering
+   # Check Claude Code logs for hook errors
+   ```
+
+**See also**: [RECALL_ANALYTICS_FIXES_2026-02-17.md](RECALL_ANALYTICS_FIXES_2026-02-17.md)
+
 ---
 
 ## Updating

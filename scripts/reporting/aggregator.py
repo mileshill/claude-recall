@@ -102,8 +102,8 @@ class DataAggregator:
                 "avg_results_per_search": 0.0,
             }
 
-        # Filter to search_completed events
-        searches = [e for e in telemetry_events if e.get('event_type') == 'search_completed']
+        # Filter to search events (recall_triggered or smart_recall_completed)
+        searches = [e for e in telemetry_events if e.get('event_type') in ('recall_triggered', 'smart_recall_completed')]
 
         if not searches:
             return {
@@ -127,7 +127,7 @@ class DataAggregator:
 
         # Results per search
         result_counts = [
-            len(e.get('results', {}).get('session_ids', []))
+            len(e.get('results', {}).get('retrieved_sessions', []))
             for e in searches
         ]
         avg_results = statistics.mean(result_counts) if result_counts else 0.0
@@ -305,7 +305,7 @@ class DataAggregator:
 
     def _analyze_performance(self, telemetry_events: List[Dict]) -> Dict[str, Any]:
         """Analyze performance metrics."""
-        searches = [e for e in telemetry_events if e.get('event_type') == 'search_completed']
+        searches = [e for e in telemetry_events if e.get('event_type') in ('recall_triggered', 'smart_recall_completed')]
 
         if not searches:
             return {
@@ -373,7 +373,7 @@ class DataAggregator:
                 })
 
         # Check for high latency
-        searches = [e for e in telemetry_events if e.get('event_type') == 'search_completed']
+        searches = [e for e in telemetry_events if e.get('event_type') in ('recall_triggered', 'smart_recall_completed')]
         if searches:
             high_latency = [
                 e for e in searches
@@ -391,7 +391,7 @@ class DataAggregator:
         if searches:
             no_results = [
                 e for e in searches
-                if len(e.get('results', {}).get('session_ids', [])) == 0
+                if len(e.get('results', {}).get('retrieved_sessions', [])) == 0
             ]
             if len(no_results) > len(searches) * 0.3:  # >30% empty
                 issues.append({
