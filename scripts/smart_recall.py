@@ -243,38 +243,45 @@ def smart_recall(
     # Return top N results
     final_results = filtered_results[:limit]
 
-    # Log smart recall completion telemetry
+    # Log smart recall completion telemetry (will update with excerpt stats after formatting)
     total_time_ms = (time.time() - start_time) * 1000
-    collector.log_event({
-        "event_id": None,
-        "event_type": "smart_recall_completed",
-        "trigger_source": "smart_recall",
-        "trigger_mode": "proactive" if context_text is None else "manual",
-        "session_id": get_current_session_id(),
-        "query": {
-            "raw_query": analysis['search_query'],
-            "extracted_keywords": analysis['keywords'][:5],
-            "technical_terms": analysis['tech_terms'][:5]
-        },
-        "search_config": {
-            "mode": search_mode,
-            "limit": limit,
-            "min_relevance": min_relevance
-        },
-        "results": {
-            "count": len(final_results),
-            "retrieved_sessions": [r['id'] for r in final_results],
-            "filtered_from": len(results),
-            "filtered_out": len(filtered_results) - len(final_results)
-        },
-        "performance": {
-            "total_latency_ms": total_time_ms,
-            "breakdown": {
-                "analysis_ms": analysis_time_ms,
-                "search_ms": search_time_ms
+    event_id = collector.start_event(
+        event_type="smart_recall_completed",
+        context={
+            "trigger_source": "smart_recall",
+            "trigger_mode": "proactive" if context_text is None else "manual",
+            "session_id": get_current_session_id(),
+            "query": {
+                "raw_query": analysis['search_query'],
+                "extracted_keywords": analysis['keywords'][:5],
+                "technical_terms": analysis['tech_terms'][:5]
+            },
+            "search_config": {
+                "mode": search_mode,
+                "limit": limit,
+                "min_relevance": min_relevance
+            },
+            "results": {
+                "count": len(final_results),
+                "retrieved_sessions": [r['id'] for r in final_results],
+                "filtered_from": len(results),
+                "filtered_out": len(filtered_results) - len(final_results)
+            },
+            "performance": {
+                "total_latency_ms": total_time_ms,
+                "breakdown": {
+                    "analysis_ms": analysis_time_ms,
+                    "search_ms": search_time_ms
+                }
             }
         }
-    })
+    )
+
+    # Store event_id in results for later update with excerpt stats
+    for result in final_results:
+        result['_recall_event_id'] = event_id
+
+    collector.end_event(event_id, outcome={"success": True})
 
     return final_results
 
@@ -319,7 +326,7 @@ def infer_context() -> str:
     return '\n'.join(context_parts)
 
 
-def format_recall_output(results: List[Dict], context_text: str = None, include_excerpts: bool = True) -> str:
+def format_recall_output(results: List[Dict], context_text: str = None, include_excerpts: bool = True) -> tuple[str, Dict]:
     """
     Format recall results for display.
 
@@ -329,10 +336,10 @@ def format_recall_output(results: List[Dict], context_text: str = None, include_
         include_excerpts: Whether to include transcript excerpts (default: True)
 
     Returns:
-        Formatted output string
+        Tuple of (formatted output string, excerpt stats dict)
     """
     if not results:
-        return "No relevant sessions found."
+        return "No relevant sessions found.", {}
 
     output = []
     output.append("=" * 60)
@@ -354,6 +361,17 @@ def format_recall_output(results: List[Dict], context_text: str = None, include_
         except ImportError:
             pass
 
+    # Track excerpt statistics
+    import time as time_module
+    excerpt_stats = {
+        "enabled": include_excerpts and extract_context_fn is not None,
+        "sessions_with_excerpts": 0,
+        "total_sessions": len(results),
+        "total_excerpt_chars": 0,
+        "total_extraction_time_ms": 0,
+        "excerpts_by_session": []
+    }
+
     for i, result in enumerate(results, 1):
         score = result.get('relevance_score', 0)
         confidence = "HIGH" if score > 0.7 else "MEDIUM" if score > 0.4 else "LOW"
@@ -374,6 +392,7 @@ def format_recall_output(results: List[Dict], context_text: str = None, include_
             if not sessions_dir.is_absolute():
                 sessions_dir = Path.cwd() / sessions_dir
 
+            excerpt_start = time_module.time()
             excerpt = extract_context_fn(
                 session_file=result['file'],
                 query=context_text,
@@ -381,10 +400,21 @@ def format_recall_output(results: List[Dict], context_text: str = None, include_
                 max_excerpts=2,
                 max_chars_per_excerpt=800
             )
+            excerpt_time_ms = (time_module.time() - excerpt_start) * 1000
 
             if excerpt:
                 output.append("")
                 output.append(excerpt)
+
+                # Track stats
+                excerpt_stats["sessions_with_excerpts"] += 1
+                excerpt_stats["total_excerpt_chars"] += len(excerpt)
+                excerpt_stats["total_extraction_time_ms"] += excerpt_time_ms
+                excerpt_stats["excerpts_by_session"].append({
+                    "session_id": result['id'],
+                    "char_count": len(excerpt),
+                    "extraction_ms": round(excerpt_time_ms, 2)
+                })
 
         output.append(f"   File: .claude/context/sessions/{result['file']}")
         output.append("")
@@ -397,7 +427,16 @@ def format_recall_output(results: List[Dict], context_text: str = None, include_
         output.append("💡 Use Read tool to view full session files for more details")
     output.append("=" * 60)
 
-    return '\n'.join(output)
+    # Calculate summary stats
+    if excerpt_stats["sessions_with_excerpts"] > 0:
+        excerpt_stats["avg_chars_per_session"] = round(
+            excerpt_stats["total_excerpt_chars"] / excerpt_stats["sessions_with_excerpts"]
+        )
+        excerpt_stats["avg_extraction_ms"] = round(
+            excerpt_stats["total_extraction_time_ms"] / excerpt_stats["sessions_with_excerpts"], 2
+        )
+
+    return '\n'.join(output), excerpt_stats
 
 
 def main():
@@ -444,7 +483,19 @@ def main():
         print(json.dumps(results, indent=2, default=str))
     else:
         # Include excerpts by default, unless JSON output requested
-        print(format_recall_output(results, context_text, include_excerpts=True))
+        formatted_output, excerpt_stats = format_recall_output(results, context_text, include_excerpts=True)
+        print(formatted_output)
+
+        # Log excerpt stats as separate telemetry event
+        if excerpt_stats.get("enabled"):
+            collector.log_event({
+                "event_id": None,
+                "event_type": "excerpt_extraction_completed",
+                "session_id": get_current_session_id(),
+                "recall_event_id": results[0].get('_recall_event_id') if results else None,
+                "excerpts": excerpt_stats,
+                "timestamp": None  # Will be added by collector
+            })
 
     # Flush telemetry before exit
     collector.flush()
