@@ -319,13 +319,14 @@ def infer_context() -> str:
     return '\n'.join(context_parts)
 
 
-def format_recall_output(results: List[Dict], context_text: str = None) -> str:
+def format_recall_output(results: List[Dict], context_text: str = None, include_excerpts: bool = True) -> str:
     """
     Format recall results for display.
 
     Args:
         results: Search results
         context_text: Original context (optional)
+        include_excerpts: Whether to include transcript excerpts (default: True)
 
     Returns:
         Formatted output string
@@ -344,6 +345,15 @@ def format_recall_output(results: List[Dict], context_text: str = None) -> str:
 
     output.append(f"\n🔍 Found {len(results)} relevant session(s):\n")
 
+    # Try to import transcript extraction
+    extract_context_fn = None
+    if include_excerpts:
+        try:
+            from extract_transcript_context import extract_relevant_context
+            extract_context_fn = extract_relevant_context
+        except ImportError:
+            pass
+
     for i, result in enumerate(results, 1):
         score = result.get('relevance_score', 0)
         confidence = "HIGH" if score > 0.7 else "MEDIUM" if score > 0.4 else "LOW"
@@ -358,11 +368,33 @@ def format_recall_output(results: List[Dict], context_text: str = None) -> str:
                         f"Semantic: {result['semantic_score']:.2f} | "
                         f"Mode: {result.get('search_mode', 'unknown')}")
 
+        # Extract and show relevant transcript excerpts
+        if extract_context_fn and context_text:
+            sessions_dir = Path(".claude/context/sessions")
+            if not sessions_dir.is_absolute():
+                sessions_dir = Path.cwd() / sessions_dir
+
+            excerpt = extract_context_fn(
+                session_file=result['file'],
+                query=context_text,
+                sessions_dir=sessions_dir,
+                max_excerpts=2,
+                max_chars_per_excerpt=800
+            )
+
+            if excerpt:
+                output.append("")
+                output.append(excerpt)
+
         output.append(f"   File: .claude/context/sessions/{result['file']}")
         output.append("")
 
     output.append("=" * 60)
-    output.append("💡 Use Read tool to view full session files for more details")
+    if include_excerpts and extract_context_fn:
+        output.append("✅ Shown: Metadata + relevant conversation excerpts")
+        output.append("💡 Use Read tool on transcript .jsonl files for complete conversation history")
+    else:
+        output.append("💡 Use Read tool to view full session files for more details")
     output.append("=" * 60)
 
     return '\n'.join(output)
@@ -411,7 +443,8 @@ def main():
     if args.json:
         print(json.dumps(results, indent=2, default=str))
     else:
-        print(format_recall_output(results, context_text))
+        # Include excerpts by default, unless JSON output requested
+        print(format_recall_output(results, context_text, include_excerpts=True))
 
     # Flush telemetry before exit
     collector.flush()
