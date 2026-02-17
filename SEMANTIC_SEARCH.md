@@ -47,6 +47,35 @@ python3 .claude/skills/recall/scripts/search_index.py --query "context memory sy
 python3 .claude/skills/recall/scripts/search_index.py --query "context memory system" --mode semantic
 ```
 
+## Verification
+
+After installation, verify semantic search is working:
+
+```bash
+# 1. Check sentence-transformers is installed
+python3 -c "from sentence_transformers import SentenceTransformer; print('✅ Installed')"
+
+# 2. Verify embeddings exist
+ls -lh .claude/context/sessions/embeddings.npz
+
+# 3. Test hybrid search
+python3 .claude/skills/recall/scripts/search_index.py \
+  --query "test search" \
+  --mode hybrid \
+  --limit 1
+
+# 4. Run quality checks (should pass with embeddings)
+python3 .claude/skills/recall/scripts/run_quality_checks.py
+
+# Expected: "✓ IndexHealthCheck: Index healthy: N sessions indexed"
+```
+
+**Success indicators:**
+- ✅ Search shows "Hybrid (BM25 + Semantic)" mode
+- ✅ Results include BM25, Semantic, and Temporal scores
+- ✅ Quality check passes without "lack embeddings" warning
+- ✅ embeddings.npz file exists (~1-2KB per session)
+
 ## Features
 
 ### 1. Intelligent Semantic Matching

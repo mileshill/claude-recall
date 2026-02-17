@@ -310,9 +310,13 @@ class IndexHealthCheck(QualityCheck):
                 )
 
             # Check for sessions without embeddings
+            # Embeddings can be indicated by either:
+            # 1. has_embedding flag (set by embed_sessions.py)
+            # 2. embeddings array (legacy format)
             missing_embeddings = [
                 s for s in sessions
-                if not s.get("embeddings") or len(s.get("embeddings", [])) == 0
+                if not s.get("has_embedding", False) and
+                   (not s.get("embeddings") or len(s.get("embeddings", [])) == 0)
             ]
 
             missing_percent = len(missing_embeddings) / len(sessions)

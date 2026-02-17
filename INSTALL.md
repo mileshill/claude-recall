@@ -293,9 +293,32 @@ Complete system with semantic search:
 # Install all dependencies
 pip install rank-bm25 sentence-transformers
 
-# Generate embeddings
-python3 .claude/skills/recall/scripts/embed_sessions.py
+# Generate embeddings for existing sessions
+python3 .claude/skills/recall/scripts/embed_sessions.py --index .claude/context/sessions/index.json
+
+# View results
+# Embeddings:  .claude/context/sessions/embeddings.npz (~1-2KB per session)
+# Model:       all-MiniLM-L6-v2 (384 dimensions, ~80MB cached)
 ```
+
+**Test hybrid search:**
+```bash
+# Search with both BM25 and semantic
+python3 .claude/skills/recall/scripts/search_index.py \
+  --query "your search query" \
+  --mode hybrid \
+  --limit 3
+
+# Should show breakdown: BM25 | Semantic | Temporal scores
+```
+
+**Benefits:**
+- Finds conceptually similar results even without keyword matches
+- Better handling of synonyms and paraphrasing
+- Complements BM25 for higher quality results
+- ~15ms additional latency per search
+
+**Note:** Embeddings auto-update when new sessions are indexed. Regenerate with `--force` if needed.
 
 ### Analytics Setup (Optional)
 
