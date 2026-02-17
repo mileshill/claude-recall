@@ -122,6 +122,27 @@ See [Analytics Guide](docs/ANALYTICS_GUIDE.md) for complete documentation.
 - [Analytics Config Reference](config/ANALYTICS_CONFIG.md) - Configuration options
 - [Shared Utilities](scripts/metrics/README.md) - Developer API reference
 
+## 🙏 Credits & Acknowledgments
+
+This project was inspired by and builds upon groundbreaking work in extending language model capabilities:
+
+### Initial Inspiration
+- **[claude_code_RLM](https://github.com/brainqub3/claude_code_RLM)** by brainqub3
+  - Minimal implementation of Recursive Language Models using Claude Code
+  - Demonstrated practical approaches to handling documents beyond context windows
+  - Inspired the architecture for session capture and retrieval
+
+### Research Foundation
+- **[Recursive Language Models (RLM)](https://arxiv.org/abs/2512.24601)** - MIT Research Paper
+  - Authors: Alex L. Zhang, Tim Kraska, Omar Khattab
+  - Pioneering work on processing prompts up to 2 orders of magnitude beyond context windows
+  - Introduced programmatic prompt decomposition and recursive self-calling
+  - Theoretical foundation for context management strategies
+
+While this recall system focuses on cross-session memory rather than within-session document processing, both approaches share the core insight: **effectively managing context beyond immediate windows through intelligent decomposition and retrieval**.
+
+---
+
 ## 📄 License
 
 MIT License - see [LICENSE](LICENSE) for details.
