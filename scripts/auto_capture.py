@@ -94,7 +94,9 @@ def extract_transcript_summary(transcript_path):
         with open(transcript_path, 'r') as f:
             lines = f.readlines()
 
-        message_count = len(lines)
+        # Count only actual user/assistant messages
+        user_message_count = 0
+        assistant_message_count = 0
 
         # Extract first user message and last assistant message for context
         first_user = None
@@ -103,23 +105,59 @@ def extract_transcript_summary(transcript_path):
         for line in lines:
             try:
                 entry = json.loads(line)
-                if entry.get('role') == 'user' and not first_user:
-                    content = entry.get('content', '')
-                    if isinstance(content, list):
-                        content = ' '.join(str(c.get('text', '')) for c in content if isinstance(c, dict))
-                    first_user = content[:200]  # First 200 chars
 
-                if entry.get('role') == 'assistant':
-                    content = entry.get('content', '')
-                    if isinstance(content, list):
-                        content = ' '.join(str(c.get('text', '')) for c in content if isinstance(c, dict))
-                    last_assistant = content[:200]  # Keep updating to get last one
+                # Handle new transcript format where messages are nested
+                # Check both 'type' field and nested 'message.role' field
+                entry_type = entry.get('type')
+                message_obj = entry.get('message', {})
+                role = message_obj.get('role') if isinstance(message_obj, dict) else None
+
+                # User messages
+                if entry_type == 'user' or role == 'user':
+                    user_message_count += 1
+                    if not first_user:
+                        # Try to get content from message.content or top-level content
+                        content = message_obj.get('content', entry.get('content', ''))
+                        if isinstance(content, str):
+                            first_user = content[:200]
+                        elif isinstance(content, list):
+                            # Extract text from content blocks
+                            text_parts = []
+                            for item in content:
+                                if isinstance(item, dict):
+                                    if item.get('type') == 'text':
+                                        text_parts.append(item.get('text', ''))
+                                elif isinstance(item, str):
+                                    text_parts.append(item)
+                            first_user = ' '.join(text_parts)[:200]
+
+                # Assistant messages
+                if entry_type == 'assistant' or role == 'assistant':
+                    assistant_message_count += 1
+                    # Try to get content from message.content or top-level content
+                    content = message_obj.get('content', entry.get('content', ''))
+                    if isinstance(content, str):
+                        last_assistant = content[:200]
+                    elif isinstance(content, list):
+                        # Extract text from content blocks (skip thinking blocks)
+                        text_parts = []
+                        for item in content:
+                            if isinstance(item, dict):
+                                if item.get('type') == 'text':
+                                    text_parts.append(item.get('text', ''))
+                            elif isinstance(item, str):
+                                text_parts.append(item)
+                        if text_parts:
+                            last_assistant = ' '.join(text_parts)[:200]
+
             except json.JSONDecodeError:
                 continue
 
+        total_messages = user_message_count + assistant_message_count
+
         summary = f"""## Transcript Summary
 
-**Messages**: {message_count}
+**Messages**: {total_messages} ({user_message_count} user, {assistant_message_count} assistant)
 
 **First User Message**:
 {first_user or '[No user message found]'}
@@ -129,7 +167,7 @@ def extract_transcript_summary(transcript_path):
 
 **Full Transcript**: {transcript_path}
 """
-        return summary, message_count
+        return summary, total_messages
 
     except Exception as e:
         return f"[Error reading transcript: {e}]", 0
@@ -315,13 +353,20 @@ def run_impact_analysis(session_id, transcript_path, session_dir, project_dir):
                 for line in f:
                     try:
                         entry = json.loads(line)
-                        content = entry.get('content', '')
-                        if isinstance(content, list):
-                            content = ' '.join(
-                                str(c.get('text', '')) for c in content
-                                if isinstance(c, dict)
-                            )
-                        transcript_text += content + "\n"
+
+                        # Handle new transcript format
+                        message_obj = entry.get('message', {})
+                        content = message_obj.get('content', entry.get('content', ''))
+
+                        if isinstance(content, str):
+                            transcript_text += content + "\n"
+                        elif isinstance(content, list):
+                            # Extract text from content blocks
+                            for item in content:
+                                if isinstance(item, dict) and item.get('type') == 'text':
+                                    transcript_text += item.get('text', '') + "\n"
+                                elif isinstance(item, str):
+                                    transcript_text += item + "\n"
                     except json.JSONDecodeError:
                         continue
         except Exception:
@@ -412,6 +457,42 @@ def auto_capture_session(hook_input):
     # Extract transcript summary
     transcript_summary, message_count = extract_transcript_summary(transcript_path)
 
+    # Generate a smart description from the first user message and git commits
+    session_description = "Session automatically captured by SessionEnd hook"
+    if transcript_path and Path(transcript_path).exists():
+        try:
+            with open(transcript_path, 'r') as f:
+                for line in f:
+                    try:
+                        entry = json.loads(line)
+                        entry_type = entry.get('type')
+                        message_obj = entry.get('message', {})
+                        role = message_obj.get('role') if isinstance(message_obj, dict) else None
+
+                        if entry_type == 'user' or role == 'user':
+                            content = message_obj.get('content', entry.get('content', ''))
+                            if isinstance(content, str) and content.strip():
+                                # Use first 150 chars of first user message as description
+                                session_description = content.strip()[:150]
+                                if len(content) > 150:
+                                    session_description += "..."
+                                break
+                            elif isinstance(content, list):
+                                for item in content:
+                                    if isinstance(item, dict) and item.get('type') == 'text':
+                                        text = item.get('text', '').strip()
+                                        if text:
+                                            session_description = text[:150]
+                                            if len(text) > 150:
+                                                session_description += "..."
+                                            break
+                                if session_description != "Session automatically captured by SessionEnd hook":
+                                    break
+                    except json.JSONDecodeError:
+                        continue
+        except Exception:
+            pass  # Keep default description
+
     # Redact transcript summary content before including in session file
     summary_report = None
     if redactor and transcript_summary:
@@ -420,6 +501,12 @@ def auto_capture_session(hook_input):
             _log_redaction_report(session_dir, summary_report, "transcript_summary", timestamp)
             total_secrets_found += summary_report.total_findings
 
+    # Redact the description too
+    if redactor:
+        session_description, desc_report = redactor.redact(session_description)
+        if desc_report and desc_report.total_findings > 0:
+            total_secrets_found += desc_report.total_findings
+
     # Copy and redact full transcript JSONL
     transcript_copy, transcript_report = redact_and_copy_transcript(
         transcript_path, session_dir, timestamp, redactor, timestamp
@@ -427,7 +514,7 @@ def auto_capture_session(hook_input):
     if transcript_report and transcript_report.total_findings > 0:
         total_secrets_found += transcript_report.total_findings
 
-    # Determine topics from messages (simple heuristic)
+    # Determine topics from messages and git commits (smarter heuristic)
     topics = ['auto-captured']
     if message_count > 0:
         topics.append('conversation')
@@ -435,6 +522,24 @@ def auto_capture_session(hook_input):
         topics.append('code-changes')
     if total_secrets_found > 0:
         topics.append('secrets-redacted')
+
+    # Extract topics from git commit messages
+    if git_log:
+        # Look for common keywords in commit messages
+        git_log_lower = git_log.lower()
+        if 'feat:' in git_log_lower or 'feature' in git_log_lower:
+            topics.append('feature')
+        if 'fix:' in git_log_lower or 'bug' in git_log_lower:
+            topics.append('bug-fix')
+        if 'refactor' in git_log_lower:
+            topics.append('refactoring')
+        if 'test' in git_log_lower:
+            topics.append('testing')
+        if 'doc' in git_log_lower:
+            topics.append('documentation')
+
+    # Deduplicate topics
+    topics = list(dict.fromkeys(topics))
 
     # Build the redaction status line for the hook status section
     if redactor is None:
@@ -451,7 +556,7 @@ def auto_capture_session(hook_input):
 
 **Status**: Auto-Captured (SessionEnd hook)
 **Session ID**: {session_id}
-**Description**: Session automatically captured by SessionEnd hook
+**Description**: {session_description}
 **Topics**: [{', '.join(topics)}]
 **Captured**: {datetime.now(timezone.utc).isoformat()}
 **Trigger**: SessionEnd

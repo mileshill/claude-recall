@@ -1,6 +1,7 @@
 ---
 name: recall
 description: Query past session context using RLM. Searches session transcripts to recall decisions, implementations, discussions from previous conversations. Improves continuity across sessions and after context compaction.
+command: bash "$CLAUDE_PROJECT_DIR/.claude/skills/recall/scripts/recall_skill.sh"
 allowed-tools:
   - Read
   - Grep
