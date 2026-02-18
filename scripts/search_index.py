@@ -15,6 +15,7 @@ from datetime import datetime, timezone
 from rank_bm25 import BM25Okapi
 import numpy as np
 import time
+import pickle
 
 # Telemetry imports
 sys.path.insert(0, str(Path(__file__).parent))
@@ -79,7 +80,45 @@ def calculate_temporal_score(session: dict, decay_days: float = 30.0) -> float:
         # If parsing fails, return neutral score
         return 0.5
 
-def bm25_search(query: str, index: dict) -> List[Dict]:
+def _load_or_build_bm25(index_path: Path, sessions: list, bm25_data: dict) -> Tuple[BM25Okapi, bool]:
+    """Load BM25 from disk cache or build fresh. Returns (bm25, cache_hit)."""
+    cache_path = index_path.parent / ".bm25_cache.pkl"
+    current_mtime = index_path.stat().st_mtime
+
+    if cache_path.exists():
+        try:
+            with open(cache_path, 'rb') as f:
+                cached = pickle.load(f)
+            if cached.get('mtime') == current_mtime and cached.get('session_count') == len(sessions):
+                return cached['bm25'], True
+        except Exception:
+            pass  # Corrupt cache — fall through to rebuild
+
+    # Build fresh BM25
+    corpus = [s.get("bm25_tokens", []) for s in sessions]
+    bm25 = BM25Okapi(corpus)
+
+    # Apply stored parameters for consistency
+    if "doc_len" in bm25_data:
+        bm25.doc_len = bm25_data["doc_len"]
+    if "avgdl" in bm25_data:
+        bm25.avgdl = bm25_data["avgdl"]
+    if "doc_freqs" in bm25_data:
+        bm25.doc_freqs = bm25_data["doc_freqs"]
+    if "idf" in bm25_data:
+        bm25.idf = bm25_data["idf"]
+
+    # Persist to disk
+    try:
+        with open(cache_path, 'wb') as f:
+            pickle.dump({'mtime': current_mtime, 'session_count': len(sessions), 'bm25': bm25}, f)
+    except Exception:
+        pass  # Non-fatal
+
+    return bm25, False
+
+
+def bm25_search(query: str, index: dict) -> Tuple[List[Dict], bool]:
     """
     Search using BM25 algorithm with temporal boosting.
 
@@ -88,7 +127,7 @@ def bm25_search(query: str, index: dict) -> List[Dict]:
         index: Index dictionary with sessions and bm25_index
 
     Returns:
-        List of sessions with relevance scores
+        Tuple of (list of sessions with relevance scores, cache_hit bool)
     """
     sessions = index.get('sessions', [])
     bm25_data = index.get('bm25_index')
@@ -101,7 +140,7 @@ def bm25_search(query: str, index: dict) -> List[Dict]:
         return [
             {**session, "relevance_score": 0.0, "bm25_score": 0.0, "temporal_score": 0.5, "search_mode": "bm25"}
             for session in sessions
-        ]
+        ], False
 
     # Handle empty query
     if not query_tokens:
@@ -110,31 +149,33 @@ def bm25_search(query: str, index: dict) -> List[Dict]:
         return [
             {**session, "relevance_score": temporal_scores[i], "bm25_score": 0.0, "temporal_score": temporal_scores[i], "search_mode": "bm25"}
             for i, session in enumerate(sessions)
-        ]
-
-    # Reconstruct BM25 index from stored data
-    corpus = [session.get("bm25_tokens", []) for session in sessions]
+        ], False
 
     # Check for empty corpus
-    if not any(corpus):
+    if not any(session.get("bm25_tokens") for session in sessions):
         # No tokens in any session, use temporal scores only
         temporal_scores = [calculate_temporal_score(session) for session in sessions]
         return [
             {**session, "relevance_score": temporal_scores[i], "bm25_score": 0.0, "temporal_score": temporal_scores[i], "search_mode": "bm25"}
             for i, session in enumerate(sessions)
-        ]
+        ], False
 
-    bm25 = BM25Okapi(corpus)
-
-    # Override with stored parameters for consistency
-    if "doc_len" in bm25_data:
-        bm25.doc_len = bm25_data["doc_len"]
-    if "avgdl" in bm25_data:
-        bm25.avgdl = bm25_data["avgdl"]
-    if "doc_freqs" in bm25_data:
-        bm25.doc_freqs = bm25_data["doc_freqs"]
-    if "idf" in bm25_data:
-        bm25.idf = bm25_data["idf"]
+    # Load or build BM25 (with disk cache)
+    index_path_str = index.get('_index_path')
+    if index_path_str:
+        bm25, cache_hit = _load_or_build_bm25(Path(index_path_str), sessions, bm25_data)
+    else:
+        corpus = [session.get("bm25_tokens", []) for session in sessions]
+        bm25 = BM25Okapi(corpus)
+        if "doc_len" in bm25_data:
+            bm25.doc_len = bm25_data["doc_len"]
+        if "avgdl" in bm25_data:
+            bm25.avgdl = bm25_data["avgdl"]
+        if "doc_freqs" in bm25_data:
+            bm25.doc_freqs = bm25_data["doc_freqs"]
+        if "idf" in bm25_data:
+            bm25.idf = bm25_data["idf"]
+        cache_hit = False
 
     # Get BM25 scores (wrap in try/except for edge cases)
     try:
@@ -145,7 +186,7 @@ def bm25_search(query: str, index: dict) -> List[Dict]:
         return [
             {**session, "relevance_score": temporal_scores[i], "bm25_score": 0.0, "temporal_score": temporal_scores[i], "search_mode": "bm25"}
             for i, session in enumerate(sessions)
-        ]
+        ], cache_hit
 
     # Normalize BM25 scores to 0-1 range
     max_bm25 = max(bm25_scores) if max(bm25_scores) > 0 else 1.0
@@ -169,7 +210,7 @@ def bm25_search(query: str, index: dict) -> List[Dict]:
             "search_mode": "bm25"
         })
 
-    return results
+    return results, cache_hit
 
 class EmbeddingCache:
     """Singleton cache for embeddings and model (lazy loading)."""
@@ -320,7 +361,7 @@ def semantic_search(
         return None
 
 
-def hybrid_search(query: str, index: dict) -> List[Dict]:
+def hybrid_search(query: str, index: dict) -> Tuple[List[Dict], bool]:
     """
     Hybrid search combining BM25 and semantic embeddings.
 
@@ -334,12 +375,12 @@ def hybrid_search(query: str, index: dict) -> List[Dict]:
         index: Index dictionary with sessions and indices
 
     Returns:
-        List of sessions with relevance scores
+        Tuple of (list of sessions with relevance scores, cache_hit bool)
     """
     sessions = index.get('sessions', [])
 
     # Get BM25 scores
-    bm25_results = bm25_search(query, index)
+    bm25_results, cache_hit = bm25_search(query, index)
 
     # Try to get semantic scores
     semantic_scores = semantic_search(query, index)
@@ -397,7 +438,7 @@ def hybrid_search(query: str, index: dict) -> List[Dict]:
                 "search_mode": "bm25"
             })
 
-    return results
+    return results, cache_hit
 
 
 def simple_relevance_score(query: str, session: dict) -> float:
@@ -585,6 +626,7 @@ def search_sessions(
 
         # Determine mode_resolved for telemetry
         mode_resolved = search_mode
+        cache_hit = False
 
         # Choose search method based on mode
         if search_mode == "simple":
@@ -620,16 +662,16 @@ def search_sessions(
             if has_embeddings or search_mode == "hybrid":
                 # Try hybrid search
                 mode_resolved = "hybrid"
-                scored = hybrid_search(query, filtered_index)
+                scored, cache_hit = hybrid_search(query, filtered_index)
             else:
                 # Fall back to BM25
                 mode_resolved = "bm25"
-                scored = bm25_search(query, filtered_index)
+                scored, cache_hit = bm25_search(query, filtered_index)
         elif search_mode == "bm25":
             # BM25 only
             mode_resolved = "bm25"
             if use_bm25 and filtered_index.get('bm25_index'):
-                scored = bm25_search(query, filtered_index)
+                scored, cache_hit = bm25_search(query, filtered_index)
             else:
                 # Fallback to simple scoring
                 mode_resolved = "simple"
@@ -641,7 +683,7 @@ def search_sessions(
             # Default: use BM25 if available
             if use_bm25 and filtered_index.get('bm25_index'):
                 mode_resolved = "bm25"
-                scored = bm25_search(query, filtered_index)
+                scored, cache_hit = bm25_search(query, filtered_index)
             else:
                 mode_resolved = "simple"
                 scored = [
@@ -703,7 +745,7 @@ def search_sessions(
                     "filter_ms": filter_time_ms,
                     "search_ms": search_time_ms
                 },
-                "cache_hit": False,  # No caching yet
+                "cache_hit": cache_hit,
                 "model_loaded": system_state.get('model_cached', False)
             },
             "system_state": system_state

@@ -260,6 +260,14 @@ class QualityScorer:
         evaluation['usage'] = usage
         evaluation['cost_usd'] = cost
 
+        # Add normalized 'scores' dict for aggregator compatibility
+        evaluation['scores'] = {
+            'overall': evaluation.get('overall_quality', 0.0),
+            'relevance': evaluation.get('relevance', 0.0),
+            'coverage': evaluation.get('coverage', 0.0),
+            'specificity': evaluation.get('accuracy', 0.0),
+        }
+
         return evaluation
 
     def _llm_evaluation(
@@ -292,6 +300,14 @@ class QualityScorer:
         evaluation['usage'] = usage
         evaluation['cost_usd'] = cost
 
+        # Add normalized 'scores' dict for aggregator compatibility
+        evaluation['scores'] = {
+            'overall': evaluation.get('overall_quality', 0.0),
+            'relevance': evaluation.get('relevance', 0.0),
+            'coverage': evaluation.get('coverage', 0.0),
+            'specificity': evaluation.get('accuracy', 0.0),
+        }
+
         return evaluation
 
     def _heuristic_evaluation(
@@ -305,6 +321,14 @@ class QualityScorer:
 
         # Add metadata
         evaluation['cost_usd'] = 0.0
+
+        # Add normalized 'scores' dict for aggregator compatibility
+        evaluation['scores'] = {
+            'overall': evaluation.get('overall_quality', 0.0),
+            'relevance': evaluation.get('relevance', 0.0),
+            'coverage': evaluation.get('coverage', 0.0),
+            'specificity': evaluation.get('accuracy', 0.0),
+        }
 
         return evaluation
 

@@ -17,6 +17,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from search_index import search_sessions
 from telemetry import get_collector, get_current_session_id
+from quality_scoring.scorer import QualityScorer
 
 
 def extract_keywords(text: str, min_length: int = 3, max_keywords: int = 10) -> List[str]:
@@ -280,6 +281,18 @@ def smart_recall(
     # Store event_id in results for later update with excerpt stats
     for result in final_results:
         result['_recall_event_id'] = event_id
+
+    # Quality evaluation (gated by sampling rate and budget)
+    try:
+        scorer = QualityScorer()
+        scorer.evaluate(
+            event_id=event_id or '',
+            query=analysis['search_query'],
+            results=final_results,
+            config_dict={'mode': search_mode, 'limit': limit},
+        )
+    except Exception:
+        pass  # Non-fatal — never block recall for quality scoring
 
     collector.end_event(event_id, outcome={"success": True})
 

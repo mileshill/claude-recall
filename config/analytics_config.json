@@ -64,7 +64,10 @@
         "enabled": true
       }
     },
-    "alert_methods": ["log", "stderr"]
+    "alert_methods": [
+      "log",
+      "stderr"
+    ]
   },
   "reporting": {
     "enabled": true,
