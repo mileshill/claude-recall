@@ -1,6 +1,7 @@
 #!/bin/bash
 # Context Recall System - Automated Installation Script
 # Usage: ./install.sh [options]
+# Remote: curl -fsSL https://raw.githubusercontent.com/mileshill/claude-recall/main/install.sh | bash
 
 set -e  # Exit on error
 
@@ -16,6 +17,8 @@ INSTALL_DIR=".claude/skills/recall"
 DOCS_DIR=".claude"
 SETTINGS_FILE=".claude/settings.json"
 CLAUDE_MD="CLAUDE.md"
+REPO_URL="https://github.com/mileshill/claude-recall.git"
+CLONED_TEMP_DIR=""
 
 # Options
 SKIP_DEPS=false
@@ -68,6 +71,37 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
+
+# Resolve the source directory for repo files.
+# When run via `curl | bash`, BASH_SOURCE[0] is empty so dirname resolves to
+# the user's cwd instead of the repo. Detect this and clone to a temp dir.
+resolve_source_dir() {
+  local script_dir
+  script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)"
+
+  # Verify the source dir actually contains repo files (SKILL.md is a reliable marker).
+  # If it doesn't, we're likely running via pipe and need to clone the repo.
+  if [[ -f "$script_dir/SKILL.md" ]]; then
+    SOURCE_DIR="$script_dir"
+  else
+    if ! command -v git &> /dev/null; then
+      echo -e "${RED}git is required when installing via curl | bash${NC}"
+      exit 1
+    fi
+    CLONED_TEMP_DIR="$(mktemp -d)"
+    echo -e "${BLUE}ℹ Detected pipe install — cloning repo to temp directory...${NC}"
+    git clone --depth 1 --quiet "$REPO_URL" "$CLONED_TEMP_DIR"
+    SOURCE_DIR="$CLONED_TEMP_DIR"
+  fi
+}
+
+# Clean up cloned temp directory on exit (if we created one)
+cleanup() {
+  if [[ -n "$CLONED_TEMP_DIR" ]] && [[ -d "$CLONED_TEMP_DIR" ]]; then
+    rm -rf "$CLONED_TEMP_DIR"
+  fi
+}
+trap cleanup EXIT
 
 # Helper functions
 print_header() {
@@ -143,7 +177,7 @@ create_directories() {
 copy_files() {
   print_header "Installing Files"
 
-  local SOURCE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  # SOURCE_DIR is resolved once in main() via resolve_source_dir
 
   # Copy scripts
   print_info "Copying scripts..."
@@ -439,6 +473,7 @@ main() {
   print_header "Context Recall System - Installation"
   echo ""
 
+  resolve_source_dir
   check_prerequisites
   create_directories
   copy_files
